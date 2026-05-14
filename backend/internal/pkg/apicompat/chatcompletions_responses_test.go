@@ -226,7 +226,7 @@ func TestChatCompletionsToResponses_WhitespaceOnlyBase64ImageURLSkipped(t *testi
 }
 
 func TestChatCompletionsToResponses_FileData(t *testing.T) {
-	content := `[{"type":"text","text":"Analyze this file"},{"type":"file","file":{"filename":"Reports - Kahoot!.pdf","file_data":"data:application/pdf;base64,abc123"}}]`
+	content := `[{"type":"text","text":"Analyze this file"},{"type":"file","file":{"filename":"example-report.pdf","file_data":"data:application/pdf;base64,abc123"}}]`
 	req := &ChatCompletionsRequest{
 		Model: "gpt-4o",
 		Messages: []ChatMessage{
@@ -246,7 +246,7 @@ func TestChatCompletionsToResponses_FileData(t *testing.T) {
 	assert.Equal(t, "input_text", parts[0].Type)
 	assert.Equal(t, "Analyze this file", parts[0].Text)
 	assert.Equal(t, "input_file", parts[1].Type)
-	assert.Equal(t, "Reports - Kahoot!.pdf", parts[1].Filename)
+	assert.Equal(t, "example-report.pdf", parts[1].Filename)
 	assert.Equal(t, "data:application/pdf;base64,abc123", parts[1].FileData)
 	assert.Empty(t, parts[1].FileURL)
 }
