@@ -2,7 +2,6 @@ package apicompat
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -12,9 +11,7 @@ type chatMessageContent struct {
 	Parts []ChatContentPart
 }
 
-const fileUploadUnsupportedErrorMessage = "Simba Note: File upload is not supported"
-
-var errFileUploadUnsupported = errors.New(fileUploadUnsupportedErrorMessage)
+const FileUploadUnsupportedErrorMessage = "Simba Note: File upload is not supported"
 
 // ChatCompletionsToResponses converts a Chat Completions request into a
 // Responses API request. The upstream always streams, so Stream is forced to
@@ -363,9 +360,6 @@ func marshalChatInputContent(content chatMessageContent) (json.RawMessage, error
 func convertChatContentPartsToResponses(parts []ChatContentPart) ([]ResponsesContentPart, error) {
 	var responseParts []ResponsesContentPart
 	for _, p := range parts {
-		if isChatFileContentPart(p) {
-			return nil, errFileUploadUnsupported
-		}
 		switch p.Type {
 		case "text":
 			if p.Text != "" {
@@ -381,13 +375,32 @@ func convertChatContentPartsToResponses(parts []ChatContentPart) ([]ResponsesCon
 					ImageURL: p.ImageURL.URL,
 				})
 			}
+		case "file":
+			fileData := p.FileData
+			fileURL := p.FileURL
+			filename := p.Filename
+			if p.File != nil {
+				if fileData == "" {
+					fileData = p.File.FileData
+				}
+				if fileURL == "" {
+					fileURL = p.File.FileURL
+				}
+				if filename == "" {
+					filename = p.File.Filename
+				}
+			}
+			if fileData != "" || fileURL != "" {
+				responseParts = append(responseParts, ResponsesContentPart{
+					Type:     "input_file",
+					FileData: fileData,
+					FileURL:  fileURL,
+					Filename: filename,
+				})
+			}
 		}
 	}
 	return responseParts, nil
-}
-
-func isChatFileContentPart(p ChatContentPart) bool {
-	return p.Type == "file" || p.Type == "input_file" || p.FileData != "" || p.FileID != "" || p.FileURL != "" || len(p.File) > 0
 }
 
 func isEmptyBase64DataURI(raw string) bool {

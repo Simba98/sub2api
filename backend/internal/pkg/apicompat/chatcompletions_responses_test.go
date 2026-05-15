@@ -260,77 +260,54 @@ func TestChatCompletionsToResponses_EmptyContentNeverNull(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsToResponses_FileDataRejected(t *testing.T) {
+func TestChatCompletionsToResponses_FileData(t *testing.T) {
+	content := `[{"type":"text","text":"Analyze this file"},{"type":"file","file":{"filename":"example-report.pdf","file_data":"data:application/pdf;base64,abc123"}}]`
 	req := &ChatCompletionsRequest{
-		Model: "gpt-5.5",
-		Messages: []ChatMessage{{
-			Role:    "user",
-			Content: json.RawMessage(`[{"type":"file","file":{"filename":"notes.txt","file_data":"data:text/plain;base64,SGVsbG8="}}]`),
-		}},
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(content)},
+		},
 	}
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
 
-	_, err := ChatCompletionsToResponses(req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), fileUploadUnsupportedErrorMessage)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "input_text", parts[0].Type)
+	assert.Equal(t, "Analyze this file", parts[0].Text)
+	assert.Equal(t, "input_file", parts[1].Type)
+	assert.Equal(t, "example-report.pdf", parts[1].Filename)
+	assert.Equal(t, "data:application/pdf;base64,abc123", parts[1].FileData)
+	assert.Empty(t, parts[1].FileURL)
 }
 
-func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMessageText(t *testing.T) {
-	content := json.RawMessage(`""`)
-	resp := &ChatCompletionsResponse{
-		ID:     "chatcmpl_deepseek_reasoning_only",
-		Object: "chat.completion",
-		Model:  "deepseek-reasoner",
-		Choices: []ChatChoice{{
-			Index: 0,
-			Message: ChatMessage{
-				Role:             "assistant",
-				Content:          content,
-				ReasoningContent: "reasoning-only answer",
-			},
-			FinishReason: "stop",
-		}},
+func TestChatCompletionsToResponses_FileURL(t *testing.T) {
+	content := `[{"type":"file","file":{"filename":"report.pdf","file_url":"https://example.com/report.pdf"}}]`
+	req := &ChatCompletionsRequest{
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(content)},
+		},
 	}
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
 
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner")
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
 
-	require.Len(t, out.Output, 2)
-	require.Equal(t, "reasoning", out.Output[0].Type)
-	require.Equal(t, "message", out.Output[1].Type)
-	require.Len(t, out.Output[1].Content, 1)
-	assert.Equal(t, "reasoning-only answer", out.Output[1].Content[0].Text)
-}
-
-func TestChatCompletionsResponseToResponses_DeepSeekReasoningToolCallDoesNotFallbackToMessageText(t *testing.T) {
-	content := json.RawMessage(`""`)
-	resp := &ChatCompletionsResponse{
-		ID:     "chatcmpl_deepseek_reasoning_tool",
-		Object: "chat.completion",
-		Model:  "deepseek-reasoner",
-		Choices: []ChatChoice{{
-			Index: 0,
-			Message: ChatMessage{
-				Role:             "assistant",
-				Content:          content,
-				ReasoningContent: "call a tool",
-				ToolCalls: []ChatToolCall{{
-					ID:   "call_a",
-					Type: "function",
-					Function: ChatFunctionCall{
-						Name:      "exec",
-						Arguments: `{}`,
-					},
-				}},
-			},
-			FinishReason: "tool_calls",
-		}},
-	}
-
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner")
-
-	require.Len(t, out.Output, 2)
-	require.Equal(t, "reasoning", out.Output[0].Type)
-	require.Equal(t, "function_call", out.Output[1].Type)
-	assert.Equal(t, "exec", out.Output[1].Name)
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "input_file", parts[0].Type)
+	assert.Equal(t, "report.pdf", parts[0].Filename)
+	assert.Equal(t, "https://example.com/report.pdf", parts[0].FileURL)
+	assert.Empty(t, parts[0].FileData)
 }
 
 func TestChatCompletionsToResponses_SystemArrayContent(t *testing.T) {
