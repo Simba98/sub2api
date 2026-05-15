@@ -5850,10 +5850,7 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 }
 
 func detectOpenAIPassthroughInstructionsRejectReason(reqModel string, body []byte) string {
-	model := strings.ToLower(strings.TrimSpace(reqModel))
-	if !strings.Contains(model, "codex") {
-		return ""
-	}
+	_ = reqModel
 
 	instructions := gjson.GetBytes(body, "instructions")
 	if !instructions.Exists() {
