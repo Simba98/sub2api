@@ -17,11 +17,9 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 	}
 
 	out := &AnthropicRequest{
-		Model:       req.Model,
-		Messages:    messages,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stream:      req.Stream,
+		Model:    req.Model,
+		Messages: messages,
+		Stream:   req.Stream,
 	}
 
 	if len(system) > 0 {
