@@ -230,7 +230,7 @@ const formatTokens = computed(() => {
 
 const formatAccountCost = computed(() => {
   if (!props.windowStats) return '0.00'
-  return props.windowStats.cost.toFixed(2)
+  return (props.windowStats.standard_cost ?? props.windowStats.cost).toFixed(2)
 })
 
 const formatUserCost = computed(() => {
