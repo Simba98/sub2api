@@ -146,4 +146,27 @@ describe('UsageProgressBar', () => {
     expect(wrapper.get('.h-1\\.5 > div').attributes('style')).toContain('width: 100%')
     expect(wrapper.get('.h-1\\.5 > div').classes()).toContain('bg-red-500')
   })
+
+  it('窗口统计展示 req、Token、A-USD 标准成本和 U-USD 用户成本', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '7d',
+        utilization: 12,
+        resetsAt: '2026-03-17T02:30:00Z',
+        color: 'emerald',
+        windowStats: {
+          requests: 12,
+          tokens: 3456,
+          cost: 9.99,
+          standard_cost: 1.23,
+          user_cost: 4.56
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('12 req')
+    expect(wrapper.text()).toContain('3.5K')
+    expect(wrapper.text()).toContain('A $1.23')
+    expect(wrapper.text()).toContain('U $4.56')
+  })
 })
