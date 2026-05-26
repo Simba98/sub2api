@@ -1287,6 +1287,63 @@ func TestAnthropicToResponses_ImageOnlyUserMessage(t *testing.T) {
 	assert.Equal(t, "data:image/jpeg;base64,/9j/4AAQ", parts[0].ImageURL)
 }
 
+func TestAnthropicToResponses_UserDocumentBlock(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:     "gpt-5.2",
+		MaxTokens: 1024,
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[
+				{"type":"text","text":"Summarize this file"},
+				{"type":"document","title":"example-report.pdf","source":{"type":"base64","media_type":"application/pdf","data":"JVBERi0x"}}
+			]`)},
+		},
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "input_text", parts[0].Type)
+	assert.Equal(t, "Summarize this file", parts[0].Text)
+	assert.Equal(t, "input_file", parts[1].Type)
+	assert.Equal(t, "example-report.pdf", parts[1].Filename)
+	assert.Equal(t, "data:application/pdf;base64,JVBERi0x", parts[1].FileData)
+	assert.Empty(t, parts[1].FileURL)
+}
+
+func TestAnthropicToResponses_UserDocumentURLBlock(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:     "gpt-5.2",
+		MaxTokens: 1024,
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[
+				{"type":"document","title":"report.pdf","source":{"type":"url","url":"https://example.com/report.pdf"}}
+			]`)},
+		},
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "input_file", parts[0].Type)
+	assert.Equal(t, "report.pdf", parts[0].Filename)
+	assert.Equal(t, "https://example.com/report.pdf", parts[0].FileURL)
+	assert.Empty(t, parts[0].FileData)
+}
+
 func TestAnthropicToResponses_ToolResultWithImage(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "gpt-5.2",
