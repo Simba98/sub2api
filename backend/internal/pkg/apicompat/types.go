@@ -63,6 +63,7 @@ type AnthropicContentBlock struct {
 
 	// type=image
 	Source *AnthropicImageSource `json:"source,omitempty"`
+	Title  string                `json:"title,omitempty"`
 
 	// type=tool_use
 	ID    string          `json:"id,omitempty"`
@@ -102,6 +103,7 @@ type AnthropicImageSource struct {
 	Type      string `json:"type"` // "base64"
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"`
+	URL       string `json:"url,omitempty"`
 }
 
 // AnthropicTool describes a tool available to the model.
