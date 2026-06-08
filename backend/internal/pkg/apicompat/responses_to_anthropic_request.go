@@ -366,9 +366,6 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 
 	var blocks []AnthropicContentBlock
 	for _, p := range parts {
-		if isResponsesFileContentPart(p) {
-			return nil, errFileUploadUnsupported
-		}
 		switch p.Type {
 		case "input_text", "text":
 			if p.Text != "" {
@@ -398,8 +395,37 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 	return json.Marshal(blocks)
 }
 
-func isResponsesFileContentPart(p ResponsesContentPart) bool {
-	return p.Type == "input_file" || p.Type == "file" || p.FileData != "" || p.FileID != "" || p.FileURL != "" || len(p.File) > 0
+func AnthropicRequestHasFileUpload(req *AnthropicRequest) bool {
+	if req == nil {
+		return false
+	}
+	for _, msg := range req.Messages {
+		if anthropicContentHasFileUpload(msg.Content) {
+			return true
+		}
+	}
+	return anthropicContentHasFileUpload(req.System)
+}
+
+func anthropicContentHasFileUpload(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var blocks []AnthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return false
+	}
+	for _, block := range blocks {
+		switch block.Type {
+		case "document", "file":
+			return true
+		case "tool_result":
+			if anthropicContentHasFileUpload(block.Content) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // convertResponsesAssistantToAnthropicContent converts a Responses assistant
