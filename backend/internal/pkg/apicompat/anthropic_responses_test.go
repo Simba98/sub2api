@@ -428,6 +428,27 @@ func TestResponsesToAnthropic_EmptyOutput(t *testing.T) {
 	assert.Equal(t, "", anth.Content[0].Text)
 }
 
+func TestAnthropicRequestHasFileUpload_DetectsConvertedDocument(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-5.5",
+		Input: json.RawMessage(`[{"role":"user","content":[{"type":"input_file","filename":"receipt.pdf","file_data":"data:application/pdf;base64,JVBERi0x"}]}]`),
+	}
+
+	out, err := ResponsesToAnthropicRequest(req)
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 1)
+
+	var blocks []AnthropicContentBlock
+	require.NoError(t, json.Unmarshal(out.Messages[0].Content, &blocks))
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "document", blocks[0].Type)
+	require.NotNil(t, blocks[0].Source)
+	assert.Equal(t, "base64", blocks[0].Source.Type)
+	assert.Equal(t, "application/pdf", blocks[0].Source.MediaType)
+	assert.Equal(t, "JVBERi0x", blocks[0].Source.Data)
+	assert.True(t, AnthropicRequestHasFileUpload(out))
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: ResponsesEventToAnthropicEvents tests
 // ---------------------------------------------------------------------------
