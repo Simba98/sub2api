@@ -92,6 +92,10 @@ func (s *GatewayService) ForwardAsResponses(
 	// 3. Force upstream streaming (Anthropic works best with streaming)
 	anthropicReq.Stream = true
 	reqStream := true
+	if account.IsAnthropicOAuthOrSetupToken() && apicompat.AnthropicRequestHasFileUpload(anthropicReq) {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", apicompat.FileUploadUnsupportedErrorMessage)
+		return nil, fmt.Errorf(apicompat.FileUploadUnsupportedErrorMessage)
+	}
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
