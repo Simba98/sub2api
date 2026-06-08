@@ -69,6 +69,7 @@ type AnthropicContentBlock struct {
 
 	// type=image
 	Source *AnthropicImageSource `json:"source,omitempty"`
+	Title  string                `json:"title,omitempty"`
 
 	// type=tool_use
 	ID    string          `json:"id,omitempty"`
@@ -108,6 +109,7 @@ type AnthropicImageSource struct {
 	Type      string `json:"type"` // "base64"
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"`
+	URL       string `json:"url,omitempty"`
 }
 
 // AnthropicTool describes a tool available to the model.
@@ -312,11 +314,10 @@ type ResponsesContentPart struct {
 	Type     string `json:"type"` // "input_text" | "output_text" | "input_image" | "input_file"
 	Text     string `json:"text,omitempty"`
 	ImageURL string `json:"image_url,omitempty"` // data URI for input_image
-
-	// input_file fields.
-	Filename string `json:"filename,omitempty"`
-	FileData string `json:"file_data,omitempty"` // data URI
+	FileData string `json:"file_data,omitempty"` // data URI for input_file
+	FileURL  string `json:"file_url,omitempty"`  // URL for input_file
 	FileID   string `json:"file_id,omitempty"`
+	Filename string `json:"filename,omitempty"`  // original filename for input_file
 }
 
 // ResponsesTool describes a tool in the Responses API.
@@ -699,6 +700,12 @@ type ChatContentPart struct {
 	Text     string        `json:"text,omitempty"`
 	ImageURL *ChatImageURL `json:"image_url,omitempty"`
 	File     *ChatFile     `json:"file,omitempty"`
+
+	// Optional flat file fields for compatibility with different client payloads.
+	FileData string `json:"file_data,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
+	FileID   string `json:"file_id,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 // ChatImageURL contains the URL for an image content part.
@@ -707,10 +714,11 @@ type ChatImageURL struct {
 	Detail string `json:"detail,omitempty"` // "auto" | "low" | "high"
 }
 
-// ChatFile contains the payload of a "file" content part (e.g. PDF input).
+// ChatFile contains file metadata and source for a file content part.
 type ChatFile struct {
 	Filename string `json:"filename,omitempty"`
-	FileData string `json:"file_data,omitempty"` // data URI
+	FileData string `json:"file_data,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
 }
 
