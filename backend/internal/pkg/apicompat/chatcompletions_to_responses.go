@@ -379,12 +379,31 @@ func convertChatContentPartsToResponses(parts []ChatContentPart) []ResponsesCont
 				})
 			}
 		case "file":
-			if p.File != nil && (p.File.FileData != "" || p.File.FileID != "") {
+			fileData := p.FileData
+			fileURL := p.FileURL
+			fileID := p.FileID
+			filename := p.Filename
+			if p.File != nil {
+				if fileData == "" {
+					fileData = p.File.FileData
+				}
+				if fileURL == "" {
+					fileURL = p.File.FileURL
+				}
+				if fileID == "" {
+					fileID = p.File.FileID
+				}
+				if filename == "" {
+					filename = p.File.Filename
+				}
+			}
+			if fileData != "" || fileURL != "" || fileID != "" {
 				responseParts = append(responseParts, ResponsesContentPart{
 					Type:     "input_file",
-					Filename: p.File.Filename,
-					FileData: p.File.FileData,
-					FileID:   p.File.FileID,
+					FileData: fileData,
+					FileURL:  fileURL,
+					FileID:   fileID,
+					Filename: filename,
 				})
 			}
 		}
