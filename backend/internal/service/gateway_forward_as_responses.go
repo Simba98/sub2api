@@ -75,6 +75,10 @@ func (s *GatewayService) ForwardAsResponses(
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
+	if account.IsAnthropicOAuthOrSetupToken() && apicompat.AnthropicRequestHasFileUpload(anthropicReq) {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", apicompat.FileUploadUnsupportedErrorMessage)
+		return nil, fmt.Errorf(apicompat.FileUploadUnsupportedErrorMessage)
+	}
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
