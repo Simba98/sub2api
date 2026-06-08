@@ -260,6 +260,20 @@ func TestChatCompletionsToResponses_EmptyContentNeverNull(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsToResponses_FileDataRejected(t *testing.T) {
+	req := &ChatCompletionsRequest{
+		Model: "gpt-5.5",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: json.RawMessage(`[{"type":"file","file":{"filename":"notes.txt","file_data":"data:text/plain;base64,SGVsbG8="}}]`),
+		}},
+	}
+
+	_, err := ChatCompletionsToResponses(req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fileUploadUnsupportedErrorMessage)
+}
+
 func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMessageText(t *testing.T) {
 	content := json.RawMessage(`""`)
 	resp := &ChatCompletionsResponse{

@@ -428,6 +428,17 @@ func TestResponsesToAnthropic_EmptyOutput(t *testing.T) {
 	assert.Equal(t, "", anth.Content[0].Text)
 }
 
+func TestResponsesToAnthropicRequest_InputFileRejected(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "gpt-5.5",
+		Input: json.RawMessage(`[{"role":"user","content":[{"type":"input_file","file_data":"data:text/plain;base64,SGVsbG8="}]}]`),
+	}
+
+	_, err := ResponsesToAnthropicRequest(req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fileUploadUnsupportedErrorMessage)
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: ResponsesEventToAnthropicEvents tests
 // ---------------------------------------------------------------------------

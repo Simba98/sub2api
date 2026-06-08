@@ -241,9 +241,13 @@ type ResponsesInputItem struct {
 
 // ResponsesContentPart is a typed content part in a Responses message.
 type ResponsesContentPart struct {
-	Type     string `json:"type"` // "input_text" | "output_text" | "input_image"
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"` // data URI for input_image
+	Type     string          `json:"type"` // "input_text" | "output_text" | "input_image"
+	Text     string          `json:"text,omitempty"`
+	ImageURL string          `json:"image_url,omitempty"` // data URI for input_image
+	FileData string          `json:"file_data,omitempty"`
+	FileID   string          `json:"file_id,omitempty"`
+	FileURL  string          `json:"file_url,omitempty"`
+	File     json.RawMessage `json:"file,omitempty"`
 }
 
 // ResponsesTool describes a tool in the Responses API.
@@ -464,9 +468,13 @@ type ChatMessage struct {
 
 // ChatContentPart is a typed content part in a multi-modal message.
 type ChatContentPart struct {
-	Type     string        `json:"type"` // "text" | "image_url"
-	Text     string        `json:"text,omitempty"`
-	ImageURL *ChatImageURL `json:"image_url,omitempty"`
+	Type     string          `json:"type"` // "text" | "image_url"
+	Text     string          `json:"text,omitempty"`
+	ImageURL *ChatImageURL   `json:"image_url,omitempty"`
+	File     json.RawMessage `json:"file,omitempty"`
+	FileData string          `json:"file_data,omitempty"`
+	FileID   string          `json:"file_id,omitempty"`
+	FileURL  string          `json:"file_url,omitempty"`
 }
 
 // ChatImageURL contains the URL for an image content part.

@@ -366,6 +366,9 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 
 	var blocks []AnthropicContentBlock
 	for _, p := range parts {
+		if isResponsesFileContentPart(p) {
+			return nil, errFileUploadUnsupported
+		}
 		switch p.Type {
 		case "input_text", "text":
 			if p.Text != "" {
@@ -389,6 +392,10 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 		return json.Marshal("")
 	}
 	return json.Marshal(blocks)
+}
+
+func isResponsesFileContentPart(p ResponsesContentPart) bool {
+	return p.Type == "input_file" || p.Type == "file" || p.FileData != "" || p.FileID != "" || p.FileURL != "" || len(p.File) > 0
 }
 
 // convertResponsesAssistantToAnthropicContent converts a Responses assistant
