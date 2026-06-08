@@ -84,7 +84,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	reqStream := true
 	if account.IsAnthropicOAuthOrSetupToken() && apicompat.AnthropicRequestHasFileUpload(anthropicReq) {
 		writeGatewayCCError(c, http.StatusBadRequest, "invalid_request_error", apicompat.FileUploadUnsupportedErrorMessage)
-		return nil, fmt.Errorf(apicompat.FileUploadUnsupportedErrorMessage)
+		return nil, fmt.Errorf("file upload is not supported")
 	}
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
