@@ -73,6 +73,10 @@ func (s *GatewayService) ForwardAsResponses(
 		}
 	}
 	anthropicReq.Model = mappedModel
+	if account.IsAnthropicOAuthOrSetupToken() && apicompat.AnthropicRequestHasFileUpload(anthropicReq) {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", apicompat.FileUploadUnsupportedErrorMessage)
+		return nil, fmt.Errorf(apicompat.FileUploadUnsupportedErrorMessage)
+	}
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
