@@ -6748,6 +6748,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// 设置认证头（保持原始大小写）
 	if tokenType == "oauth" {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
+	} else if account.Platform == PlatformAntigravity {
+		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
+		setHeaderRaw(req.Header, "x-api-key", token)
 	} else {
 		setHeaderRaw(req.Header, "x-api-key", token)
 	}
