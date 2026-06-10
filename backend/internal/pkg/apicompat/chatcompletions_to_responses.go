@@ -8,6 +8,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
+const FileUploadUnsupportedErrorMessage = "Simba Note: File upload is not supported"
+
 type chatMessageContent struct {
 	Text  *string
 	Parts []ChatContentPart
