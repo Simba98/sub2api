@@ -665,3 +665,33 @@ func TestBuildUpstreamRequest_APIKeyHaikuWithContextManagement_StripsField(t *te
 	require.False(t, gjson.GetBytes(outBody, "context_management").Exists(),
 		"API-key + haiku + 客户端未带 beta token → body 字段必须被 strip")
 }
+
+func TestBuildUpstreamRequest_AntigravityAPIKeyUsesDualAuthHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	account := &Account{
+		ID:       405,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "sk-antigravity-test",
+			"base_url": "https://upstream.example.com",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[]}`)
+	svc := &GatewayService{cfg: &config.Config{}}
+	req, _, err := svc.buildUpstreamRequest(
+		context.Background(), c, account, body,
+		"sk-antigravity-test", "apikey", "claude-sonnet-4-5", false, false,
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, "https://upstream.example.com/antigravity/v1/messages?beta=true", req.URL.String())
+	require.Equal(t, "Bearer sk-antigravity-test", getHeaderRaw(req.Header, "authorization"))
+	require.Equal(t, "sk-antigravity-test", getHeaderRaw(req.Header, "x-api-key"))
+}
