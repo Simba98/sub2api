@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const FileUploadUnsupportedErrorMessage = "Simba Note: File upload is not supported"
+
 type chatMessageContent struct {
 	Text  *string
 	Parts []ChatContentPart
