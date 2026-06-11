@@ -74,6 +74,48 @@ cd frontend && pnpm install
 
 ## 四、常见坑点 & 解决方案
 
+### 发布迁移护栏：四段式 patch 版本不能漏补丁
+
+**场景**：从新的上游 release tag 重建本 fork 的四段式 patch 版本，例如 `v0.1.136.3`。
+
+**固定流程**：
+```bash
+git fetch --all --tags --prune
+git switch main
+git reset --hard v0.1.136
+git switch -c patch
+
+# 先列上一版完整补丁栈，再列新分支补丁栈
+git log --oneline --reverse v0.1.135..v0.1.135.4
+git log --oneline --reverse v0.1.136..HEAD
+
+# 必须逐项核对，不能只看提交名相似
+git range-diff v0.1.135..v0.1.135.4 v0.1.136..HEAD
+```
+
+**v0.1.136.3 重建时必须保留的补丁类别**：
+- Codex usage window stats。
+- Anthropic 7d window stats。
+- 前端 Anthropic/Codex window stats 展示。
+- OpenAI OAuth passthrough 缺少 `instructions` 时回退到非透传路径；检测不能只覆盖模型名包含 `codex` 的请求，还要覆盖 `gpt-5.2`、`gpt-5.4`、`gpt-5.5` 等 OAuth 可用模型。
+- file data/file URL 与 Anthropic file/document block 在协议转换中的保留。
+- file upload 按 upstream platform gate，并向客户端暴露拒绝原因。
+- Antigravity Claude file blocks inline data 保留。
+- Antigravity chat bridge 使用 Bearer 发送 API key。
+
+**本次漏补丁根因**：`v0.1.136` 上游已有 `fix(openai): 自动透传预检 instructions 并本地 403 拦截`，看起来像吸收了本 fork 的 rollback 修复，但它只检查 `strings.Contains(model, "codex")`。迁移时不能用“提交名/功能描述相似”替代 `range-diff` 和关键测试核验。
+
+**发布前核验**：
+```bash
+# instructions 检测函数应不按 codex 字符串过滤
+git grep -n "func detectOpenAIPassthroughInstructionsRejectReason" -- backend/internal/service/openai_gateway_service.go
+git grep -n "_ = reqModel" -- backend/internal/service/openai_gateway_service.go
+
+# 确认 tag 后补丁栈完整
+git log --oneline --reverse v0.1.136..HEAD
+git range-diff v0.1.135..v0.1.135.4 v0.1.136..HEAD
+```
+
 ### 坑 1：pnpm-lock.yaml 必须同步提交
 
 **问题**：`package.json` 新增依赖后，CI 的 `pnpm install --frozen-lockfile` 失败。
