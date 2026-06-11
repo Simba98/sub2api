@@ -116,6 +116,12 @@ git log --oneline --reverse v0.1.136..HEAD
 git range-diff v0.1.135..v0.1.135.4 v0.1.136..HEAD
 ```
 
+**CI 确认后部署**：Release/CI 成功后执行：
+```bash
+ssh amd1.sg.0w0o0w0.xyz "bash -c 'cd ~/sub2api/ && docker compose pull ; docker compose up -d'"
+```
+部署输出必须确认 `sub2api Pulled`、`Container sub2api Recreated`、`Container sub2api Started`，并且 `sub2api-redis` 与 `sub2api-postgres` 均为 `Healthy`。如果 CI 是由人工在 GitHub 页面确认完成，仍要在本地记录 tag、HEAD 和部署输出摘要，避免只凭记忆收尾。
+
 ### 坑 1：pnpm-lock.yaml 必须同步提交
 
 **问题**：`package.json` 新增依赖后，CI 的 `pnpm install --frozen-lockfile` 失败。
