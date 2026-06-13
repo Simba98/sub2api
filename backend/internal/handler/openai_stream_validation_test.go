@@ -124,6 +124,25 @@ func TestGatewayOpenAICompatibleHandlersAllowBooleanStreamToContinue(t *testing.
 	}
 }
 
+func TestGatewayChatCompletionsDoesNotRejectAntigravityGroupLocally(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c, rec := newOpenAICompatibleStreamValidationContext(
+		"/v1/chat/completions",
+		`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hello"}]}`,
+		true,
+	)
+	apiKey, ok := c.MustGet(string(middleware2.ContextKeyAPIKey)).(*service.APIKey)
+	require.True(t, ok)
+	apiKey.Group.Platform = service.PlatformAntigravity
+
+	(&GatewayHandler{gatewayService: &service.GatewayService{}}).ChatCompletions(c)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, "permission_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.NotContains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "/antigravity/v1/messages")
+}
+
 func newOpenAICompatibleStreamValidationContext(path, body string, claudeCodeOnly bool) (*gin.Context, *httptest.ResponseRecorder) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
