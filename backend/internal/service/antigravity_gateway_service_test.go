@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // antigravityFailingWriter 模拟客户端断开连接的 gin.ResponseWriter
@@ -542,6 +543,120 @@ func TestAntigravityGatewayService_Forward_PromptTooLong(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, events, 1)
 	require.Equal(t, "prompt_too_long", events[0].Kind)
+}
+
+func TestAntigravityGatewayService_ForwardAsChatCompletionsBuildsAntigravityRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+
+	body := []byte(`{"model":"claude-sonnet-4-6","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	upstreamBody := `data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hello back"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}}` + "\n\n"
+	upstream := &queuedHTTPUpstreamStub{
+		responses: []*http.Response{{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"X-Request-Id": []string{"req-chat-1"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		}},
+	}
+	svc := &AntigravityGatewayService{
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   upstream,
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "acc-chat",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "project-1",
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "req-chat-1", result.RequestID)
+	require.Equal(t, "claude-sonnet-4-6", result.Model)
+	require.NotEmpty(t, result.UpstreamModel)
+	require.False(t, result.Stream)
+	require.Len(t, upstream.requestBodies, 1)
+	requestBody := string(upstream.requestBodies[0])
+	require.Equal(t, "project-1", gjson.Get(requestBody, "project").String())
+	require.Equal(t, "hello", gjson.Get(requestBody, "request.contents.0.parts.0.text").String())
+	require.True(t, gjson.Get(requestBody, "request.generationConfig.maxOutputTokens").Exists())
+	require.Equal(t, http.StatusOK, writer.Code)
+	require.Equal(t, "chat.completion", gjson.Get(writer.Body.String(), "object").String())
+	require.Equal(t, "hello back", gjson.Get(writer.Body.String(), "choices.0.message.content").String())
+}
+
+func TestAntigravityGatewayService_ForwardAsChatCompletionsAggregatesSSEText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	body := []byte(`{"model":"gemini-3.6-flash","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	upstreamBody := strings.Join([]string{
+		`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hello "}]}}]}}`,
+		`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"world"}]}}]}}`,
+		`data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}}`,
+		"",
+	}, "\n\n")
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(upstreamBody))}}}
+	svc := &AntigravityGatewayService{
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   upstream,
+	}
+	account := &Account{ID: 1, Name: "acc-chat", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1, Credentials: map[string]any{"access_token": "token", "project_id": "project-1", "model_mapping": map[string]any{"gemini-3.6-flash": "gemini-3.6-flash-tiered"}}}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "hello world", gjson.Get(writer.Body.String(), "choices.0.message.content").String())
+	require.Equal(t, 2, result.Usage.OutputTokens)
+}
+
+func TestAntigravityGatewayService_ForwardAsChatCompletionsStreamsToolCalls(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	body := []byte(`{"model":"gemini-3.6-flash","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"read the file"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	upstreamBody := strings.Join([]string{
+		`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read_file","args":{"path":"README.md"}}}]}}]}}`,
+		`data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":4,"totalTokenCount":12}}}`,
+		"",
+	}, "\n\n")
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(upstreamBody))}}}
+	svc := &AntigravityGatewayService{
+		settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+		tokenProvider:  &AntigravityTokenProvider{},
+		httpUpstream:   upstream,
+	}
+	account := &Account{ID: 1, Name: "acc-chat", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1, Credentials: map[string]any{"access_token": "token", "project_id": "project-1", "model_mapping": map[string]any{"gemini-3.6-flash": "gemini-3.6-flash-tiered"}}}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	response := writer.Body.String()
+	require.Contains(t, response, `"tool_calls"`)
+	require.Contains(t, response, `"name":"read_file"`)
+	require.Contains(t, response, `README.md`)
+	require.Contains(t, response, `"finish_reason":"tool_calls"`)
+	require.Contains(t, response, "data: [DONE]")
+	require.Equal(t, 4, result.Usage.OutputTokens)
 }
 
 // TestAntigravityGatewayService_Forward_ModelRateLimitTriggersFailover
