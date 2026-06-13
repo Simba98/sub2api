@@ -243,6 +243,30 @@ git add ent/       # 生成的文件也要提交
 - [ ] 所有 test stub 补全新接口方法（如果改了 interface）
 - [ ] Ent 生成的代码已提交（如果改了 schema）
 
+---
+
+### 坑 12：Antigravity Chat Completions 必须同步 Gemini 完整转换状态机
+
+**典型现象**：
+- `/v1/chat/completions` 返回 HTTP 200，Antigravity 上游也产生了 output tokens；
+- 客户端却收到空 `content`，或 Agent 工具调用丢失后立即重试；
+- `ops_error_logs` 没有错误，因为传输层确实成功。
+
+**根因**：
+- 普通 Gemini 与 Antigravity 的 Gemini 响应语义相同，但传输层不同；Antigravity 使用 OAuth、`v1internal` 外层、专用模型映射及 retry loop，不能直接调用普通 Gemini 的完整 `ForwardAsChatCompletions`；
+- 自行实现 Antigravity bridge 时若只保留最后一个 SSE event，末尾只有 `finishReason`/`usageMetadata` 的事件会覆盖之前的文本和 `functionCall`；
+- 仅从最终 `message.content` 手工生成 chunk 还会丢失 OpenAI `tool_calls`、正确的 `finish_reason` 和真实增量流式行为。
+
+**实现原则**：
+1. 请求/响应转换行为应逐项对齐上游 `GeminiMessagesCompatService.ForwardAsChatCompletions`。
+2. Antigravity 只保留自己的鉴权、`v1internal` 包装、模型映射、identity patch、限流及 retry loop。
+3. 非流式客户端若使用流式上游，必须累计全部文本并保留最后一个含 `parts` 的事件，不能只保存尾帧。
+4. 流式客户端必须逐事件转换文本与 `functionCall`，输出 OpenAI `tool_calls`，并在工具调用结束时使用 `finish_reason: tool_calls`。
+5. 回归测试至少覆盖：多段文本 + metadata-only 尾帧、纯工具调用、文本加工具调用、usage 和 `[DONE]`。
+
+**发布经验**：
+- 已发布 `.1` 后，同一上游基线的 fork 热修复可使用一次性的 `.2` tag（例如 `v0.1.164.2`），无需伪装成新的上游版本；下一次上游升级恢复默认 `.1` 规则。
+
 ## 五、常用命令速查
 
 ### 数据库操作
