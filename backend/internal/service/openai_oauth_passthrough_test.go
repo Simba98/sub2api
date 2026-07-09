@@ -524,8 +524,6 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamRequestIgnoresClientCance
 
 func TestOpenAIGatewayService_OAuthPassthrough_MissingInstructionsRejectedBeforeUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	logSink, restore := captureStructuredLog(t)
-	defer restore()
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -567,9 +565,8 @@ func TestOpenAIGatewayService_OAuthPassthrough_MissingInstructionsRejectedBefore
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.NotEqual(t, http.StatusForbidden, rec.Code)
-
-	require.True(t, logSink.ContainsMessage("OpenAI passthrough 本地拦截：Codex 请求缺少有效 instructions"))
-	require.True(t, logSink.ContainsFieldValue("reject_reason", "instructions_missing"))
+	require.NotEqual(t, originalBody, upstream.lastBody)
+	require.Contains(t, string(upstream.lastBody), `"stream":true`)
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_MissingInstructionsRollbackToNonPassthrough(t *testing.T) {
