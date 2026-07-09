@@ -130,6 +130,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// 设置认证头（保持原始大小写）
 	if tokenType == "oauth" {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
+	} else if account.Platform == PlatformAntigravity {
+		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
+		setHeaderRaw(req.Header, "x-api-key", token)
 	} else {
 		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer（同上方
 		// targetURL 的 base 取值），其余保持 extra/default 行为。
