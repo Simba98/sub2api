@@ -35,3 +35,17 @@ exceptions:
     mitigation: "Proxy configuration not user-controlled; upgrade when axios releases fix"
     expires_on: "2026-07-10"
     owner: "security@your-domain"
+  - package: postcss
+    advisory: "GHSA-6g55-p6wh-862q"
+    severity: high
+    reason: "PostCSS only processes repository-controlled frontend CSS during CI builds; production serves prebuilt static assets and exposes no untrusted CSS processing path"
+    mitigation: "Keep CSS build inputs repository-controlled and upgrade PostCSS as soon as a fixed release is available"
+    expires_on: "2026-08-25"
+    owner: "security@your-domain"
+  - package: postcss
+    advisory: "GHSA-r28c-9q8g-f849"
+    severity: high
+    reason: "PostCSS only processes repository-controlled frontend CSS during CI builds; production serves prebuilt static assets and exposes no untrusted CSS processing path"
+    mitigation: "Keep CSS build inputs repository-controlled and upgrade PostCSS as soon as a fixed release is available"
+    expires_on: "2026-08-25"
+    owner: "security@your-domain"
