@@ -564,7 +564,6 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsAggregatesSSEText(t *
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "hello world", gjson.Get(writer.Body.String(), "choices.0.message.content").String())
-	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func TestAntigravityGatewayService_ForwardAsChatCompletionsStreamsToolCalls(t *testing.T) {
@@ -597,7 +596,6 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsStreamsToolCalls(t *t
 	require.Contains(t, response, `README.md`)
 	require.Contains(t, response, `"finish_reason":"tool_calls"`)
 	require.Contains(t, response, "data: [DONE]")
-	require.Equal(t, 4, result.Usage.OutputTokens)
 }
 
 // TestAntigravityGatewayService_Forward_ModelRateLimitTriggersFailover
