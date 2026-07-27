@@ -520,7 +520,7 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsBuildsAntigravityRequ
 		},
 	}
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -559,7 +559,7 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsAggregatesSSEText(t *
 	}
 	account := &Account{ID: 1, Name: "acc-chat", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1, Credentials: map[string]any{"access_token": "token", "project_id": "project-1", "model_mapping": map[string]any{"gemini-3.6-flash": "gemini-3.6-flash-tiered"}}}
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -587,7 +587,7 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsStreamsToolCalls(t *t
 	}
 	account := &Account{ID: 1, Name: "acc-chat", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1, Credentials: map[string]any{"access_token": "token", "project_id": "project-1", "model_mapping": map[string]any{"gemini-3.6-flash": "gemini-3.6-flash-tiered"}}}
 
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, false)
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
