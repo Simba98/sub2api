@@ -605,9 +605,9 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsAggregatesSSEText(t *
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
 	upstreamBody := strings.Join([]string{
-		`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hello "}]}}]}}`,
-		`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"world"}]}}]}}`,
-		`data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}}`,
+		`data: {"response":{"responseId":"resp-chat-aggregate","candidates":[{"content":{"role":"model","parts":[{"text":"hello "}]}}]}}`,
+		`data: {"response":{"responseId":"resp-chat-aggregate","candidates":[{"content":{"role":"model","parts":[{"text":"world"}]}}]}}`,
+		`data: {"response":{"responseId":"resp-chat-aggregate","candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}}`,
 		"",
 	}, "\n\n")
 	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(upstreamBody))}}}
