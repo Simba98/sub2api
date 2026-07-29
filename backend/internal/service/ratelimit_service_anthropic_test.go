@@ -195,6 +195,7 @@ func TestSelectAnthropicFableWindowLimit_RejectedStatus(t *testing.T) {
 	limit := selectAnthropicFableWindowLimit(headers, now)
 	if limit == nil {
 		t.Fatal("expected non-nil limit")
+		return
 	}
 	if !limit.resetAt.Equal(reset) {
 		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
