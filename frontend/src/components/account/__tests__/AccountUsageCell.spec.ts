@@ -321,7 +321,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2100, 'passive')
+    expect(getUsage).toHaveBeenCalledWith(2100, 'passive', false)
     expect(wrapper.text()).toContain('5h|10|5|500|0.55|0.25')
     expect(wrapper.text()).toContain('7d|20|70|7000|7.7|3.5')
     expect(wrapper.text()).toContain('7d S|30|17|1700|1.87|0.85')
