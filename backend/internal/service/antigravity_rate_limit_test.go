@@ -105,7 +105,7 @@ func (s *stubAntigravityAccountRepo) UpdateExtra(ctx context.Context, id int64, 
 }
 
 func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) {
-	t.Setenv(antigravityForwardBaseURLEnv, "")
+	t.Setenv(antigravityForwardBaseURLEnv, "prod")
 
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	oldAvailability := antigravity.DefaultURLAvailability
@@ -1019,10 +1019,45 @@ func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
 
 	prodURL := "https://prod.test"
 	dailyURL := "https://daily.test"
-	antigravity.BaseURLs = []string{dailyURL, prodURL}
+	antigravity.BaseURLs = []string{prodURL, dailyURL}
 
-	resolved := resolveAntigravityForwardBaseURL()
+	resolved, source := resolveAntigravityForwardBaseURL()
 	require.Equal(t, dailyURL, resolved)
+	require.Equal(t, "default_sandbox", source)
+}
+
+func TestResolveAntigravityForwardBaseURL_ExplicitProd(t *testing.T) {
+	t.Setenv(antigravityForwardBaseURLEnv, "prod")
+
+	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
+	defer func() {
+		antigravity.BaseURLs = oldBaseURLs
+	}()
+
+	prodURL := "https://prod.test"
+	dailyURL := "https://daily.test"
+	antigravity.BaseURLs = []string{prodURL, dailyURL}
+
+	resolved, source := resolveAntigravityForwardBaseURL()
+	require.Equal(t, prodURL, resolved)
+	require.Equal(t, "explicit_prod", source)
+}
+
+func TestResolveAntigravityForwardBaseURL_ExplicitSandbox(t *testing.T) {
+	t.Setenv(antigravityForwardBaseURLEnv, "sandbox")
+
+	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
+	defer func() {
+		antigravity.BaseURLs = oldBaseURLs
+	}()
+
+	prodURL := "https://prod.test"
+	dailyURL := "https://daily.test"
+	antigravity.BaseURLs = []string{prodURL, dailyURL}
+
+	resolved, source := resolveAntigravityForwardBaseURL()
+	require.Equal(t, dailyURL, resolved)
+	require.Equal(t, "explicit_sandbox", source)
 }
 
 func TestAntigravityAccountSwitchError_Error(t *testing.T) {

@@ -46,28 +46,25 @@ type antigravityRetryLoopResult struct {
 	resp *http.Response
 }
 
-// resolveAntigravityForwardBaseURL 解析转发用 base URL。
-//
-// 默认使用生产端点 cloudcode-pa.googleapis.com（antigravity.BaseURLs 的首个地址，
-// 与账号 OAuth 登录/测试连接所用的 antigravity.BaseURL 一致）。
-//
-// 历史上这里改用 ForwardBaseURLs()（把 daily/sandbox 排到首位）并默认取首个地址，
-// 导致网关把带生产 OAuth token 的请求发到 daily-cloudcode-pa.sandbox.googleapis.com，
-// 上游拒绝 → 账号被 401「Invalid bearer token」/502 打入临时不可调度且无法恢复
-// （见 #3611 / #2962）。后台「测试连接」用的是生产端点，所以「测试成功但网关 401」。
-//
-// daily/sandbox 端点仅供内部联调，需显式设置
-// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily（或 sandbox）才启用。
-func resolveAntigravityForwardBaseURL() string {
+// resolveAntigravityForwardBaseURL 解析转发用 base URL 及选择来源。
+// v0.1.176.2 默认使用 daily sandbox，以验证付费 Antigravity 账号的推理端点；
+// 可显式设置 GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=prod 快速回退生产端点。
+func resolveAntigravityForwardBaseURL() (string, string) {
 	baseURLs := antigravity.BaseURLs
 	if len(baseURLs) == 0 {
-		return ""
+		return "", "unavailable"
 	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
-	if (mode == "daily" || mode == "sandbox") && len(baseURLs) > 1 {
-		return baseURLs[1]
+	if mode == "prod" {
+		return baseURLs[0], "explicit_prod"
 	}
-	return baseURLs[0]
+	if len(baseURLs) == 1 {
+		return baseURLs[0], "default_prod_only"
+	}
+	if mode == "daily" || mode == "sandbox" {
+		return baseURLs[1], "explicit_sandbox"
+	}
+	return baseURLs[1], "default_sandbox"
 }
 
 // smartRetryAction 智能重试的处理结果
@@ -488,10 +485,12 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		}
 	}
 
-	baseURL := resolveAntigravityForwardBaseURL()
+	baseURL, baseURLSource := resolveAntigravityForwardBaseURL()
 	if baseURL == "" {
 		return nil, errors.New("no antigravity forward base url configured")
 	}
+	logger.LegacyPrintf("service.antigravity_gateway", "%s forward_endpoint account=%d endpoint=%s source=%s",
+		p.prefix, p.account.ID, baseURL, baseURLSource)
 	availableURLs := []string{baseURL}
 
 	var resp *http.Response
