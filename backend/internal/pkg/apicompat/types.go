@@ -317,7 +317,7 @@ type ResponsesContentPart struct {
 	FileData string `json:"file_data,omitempty"` // data URI for input_file
 	FileURL  string `json:"file_url,omitempty"`  // URL for input_file
 	FileID   string `json:"file_id,omitempty"`
-	Filename string `json:"filename,omitempty"`  // original filename for input_file
+	Filename string `json:"filename,omitempty"` // original filename for input_file
 }
 
 // ResponsesTool describes a tool in the Responses API.
