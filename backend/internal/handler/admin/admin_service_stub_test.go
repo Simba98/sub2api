@@ -38,6 +38,7 @@ type stubAdminService struct {
 	getAccountResult                    *service.Account
 	updateAccountCalls                  int
 	updateAccountExtraCalls             int
+	lastAccountExtraUpdates             map[string]any
 	checkMixedErr                       error
 	lastMixedCheck                      struct {
 		accountID int64
@@ -512,6 +513,7 @@ func (s *stubAdminService) UpdateAccount(ctx context.Context, id int64, input *s
 
 func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
 	s.updateAccountExtraCalls++
+	s.lastAccountExtraUpdates = updates
 	return nil
 }
 
