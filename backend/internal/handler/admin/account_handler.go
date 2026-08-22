@@ -2416,6 +2416,72 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 	response.Success(c, usage)
 }
 
+// SetAPIKeyUsageWindows sets or clears explicit API-key usage window reset times.
+// PUT /api/v1/admin/accounts/:id/usage-windows
+func (h *AccountHandler) SetAPIKeyUsageWindows(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req map[string]*string
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if account.Type != service.AccountTypeAPIKey {
+		response.BadRequest(c, "Usage windows can only be set for apikey accounts")
+		return
+	}
+
+	keys := map[string]string{
+		"five_hour_reset_at": service.APIKeyFiveHourResetAtExtraKey,
+		"seven_day_reset_at": service.APIKeySevenDayResetAtExtraKey,
+	}
+	updates := make(map[string]any, len(keys))
+	now := time.Now()
+	for requestKey, extraKey := range keys {
+		value, provided := req[requestKey]
+		if !provided {
+			continue
+		}
+		if value == nil {
+			updates[extraKey] = nil
+			continue
+		}
+		parsed, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(*value))
+		if parseErr != nil {
+			response.BadRequest(c, requestKey+" must be an RFC3339 timestamp or null")
+			return
+		}
+		if !parsed.After(now) {
+			response.BadRequest(c, requestKey+" must be in the future")
+			return
+		}
+		updates[extraKey] = parsed.Format(time.RFC3339)
+	}
+	if len(updates) == 0 {
+		response.BadRequest(c, "Provide five_hour_reset_at and/or seven_day_reset_at")
+		return
+	}
+	if err := h.adminService.UpdateAccountExtra(c.Request.Context(), accountID, updates); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	account, err = h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // ClearRateLimit handles clearing account rate limit status
 // POST /api/v1/admin/accounts/:id/clear-rate-limit
 func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
