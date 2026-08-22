@@ -1,5 +1,11 @@
 <template>
   <div ref="rootRef" v-if="showUsageWindows">
+    <div v-if="account.type === 'apikey' && account.platform !== 'gemini' && hasExplicitAPIKeyWindows" class="mb-1 space-y-1">
+      <div class="space-y-1">
+        <UsageProgressBar v-if="usageInfo?.five_hour" label="5h" :utilization="usageInfo.five_hour.utilization" :resets-at="usageInfo.five_hour.resets_at" :window-stats="usageInfo.five_hour.window_stats" color="indigo" />
+        <UsageProgressBar v-if="usageInfo?.seven_day" label="7d" :utilization="usageInfo.seven_day.utilization" :resets-at="usageInfo.seven_day.resets_at" :window-stats="usageInfo.seven_day.window_stats" color="emerald" />
+      </div>
+    </div>
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -792,8 +798,14 @@ const isGeminiVertex = computed(() => {
   return props.account.platform === 'gemini' && props.account.type === 'service_account'
 })
 
+const hasExplicitAPIKeyWindows = computed(() => {
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  return extra?.apikey_5h_reset_at != null || extra?.apikey_7d_reset_at != null
+})
+
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
+  if (props.account.type === 'apikey' && hasExplicitAPIKeyWindows.value) return true
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   // 第三方上游 API Key 没有模拟配额，按普通 Key 账号展示今日统计与额度进度条。
   if (props.account.platform === 'gemini') return !isGeminiThirdPartyApiKey.value
@@ -806,6 +818,7 @@ const showUsageWindows = computed(() => {
 })
 
 const shouldFetchUsage = computed(() => {
+  if (props.account.type === 'apikey' && hasExplicitAPIKeyWindows.value) return true
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
