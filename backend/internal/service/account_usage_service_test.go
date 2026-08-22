@@ -23,6 +23,57 @@ func (r *accountUsageWindowStatsRepo) GetAccountWindowStats(_ context.Context, _
 	return &usagestats.AccountStats{}, nil
 }
 
+func TestApplyExplicitAPIKeyWindows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	fiveReset := now.Add(2 * time.Hour)
+	sevenReset := now.Add(48 * time.Hour)
+	repo := &accountUsageWindowStatsRepo{statsByStart: map[int64]*usagestats.AccountStats{
+		fiveReset.Add(-5 * time.Hour).UnixNano():       {Requests: 2, InputTokens: 10, OutputTokens: 20, Tokens: 35, Cost: 1, StandardCost: 2, UserCost: 3},
+		sevenReset.Add(-7 * 24 * time.Hour).UnixNano(): {Requests: 4},
+	}}
+	svc := &AccountUsageService{usageLogRepo: repo}
+	usage := &UsageInfo{GeminiProDaily: &UsageProgress{Utilization: 50}}
+	account := &Account{ID: 9, Type: AccountTypeAPIKey, Extra: map[string]any{
+		APIKeyFiveHourResetAtExtraKey: fiveReset.Format(time.RFC3339),
+		APIKeySevenDayResetAtExtraKey: sevenReset.Format(time.RFC3339),
+	}}
+
+	svc.applyExplicitAPIKeyWindows(context.Background(), account, usage, now)
+
+	if usage.GeminiProDaily == nil {
+		t.Fatal("explicit windows must preserve Gemini quota fields")
+	}
+	if usage.FiveHour == nil || usage.FiveHour.WindowStats == nil {
+		t.Fatal("expected explicit five-hour window stats")
+	}
+	if usage.FiveHour.WindowStats.InputTokens != 10 || usage.FiveHour.WindowStats.OutputTokens != 20 {
+		t.Fatalf("unexpected token breakdown: %+v", usage.FiveHour.WindowStats)
+	}
+	if len(repo.calls) != 2 || !repo.calls[0].Equal(fiveReset.Add(-5*time.Hour)) || !repo.calls[1].Equal(sevenReset.Add(-7*24*time.Hour)) {
+		t.Fatalf("unexpected stats starts: %v", repo.calls)
+	}
+}
+
+func TestApplyExplicitAPIKeyWindowsOmitsExpiredOverride(t *testing.T) {
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	repo := &accountUsageWindowStatsRepo{}
+	svc := &AccountUsageService{usageLogRepo: repo}
+	automatic := &UsageProgress{Utilization: 90}
+	usage := &UsageInfo{FiveHour: automatic}
+	account := &Account{Type: AccountTypeAPIKey, Extra: map[string]any{
+		APIKeyFiveHourResetAtExtraKey: now.Add(-time.Minute).Format(time.RFC3339),
+	}}
+
+	svc.applyExplicitAPIKeyWindows(context.Background(), account, usage, now)
+
+	if usage.FiveHour != nil {
+		t.Fatal("expired explicit override must suppress automatic estimate and be omitted")
+	}
+	if len(repo.calls) != 0 {
+		t.Fatal("expired window must not query stats")
+	}
+}
+
 type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCh chan map[string]any

@@ -104,6 +104,41 @@ describe('AccountUsageCell', () => {
         dispatchEvent: vi.fn(),
       }))
     })
+
+  })
+
+  it('shows explicit API-key usage windows without changing its platform branch', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 0,
+        resets_at: '2027-01-01T00:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: { requests: 2, input_tokens: 10, output_tokens: 20, tokens: 30, cost: 1, user_cost: 2 }
+      },
+      seven_day: null
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 77,
+          platform: 'openai',
+          type: 'apikey',
+          extra: { apikey_5h_reset_at: '2027-01-01T00:00:00Z' }
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'windowStats'],
+            template: '<div data-test="explicit-window">{{ label }}|{{ windowStats?.input_tokens }}|{{ windowStats?.output_tokens }}</div>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(77)
+    expect(wrapper.get('[data-test="explicit-window"]').text()).toBe('5h|10|20')
   })
 
   it('renders eligible Ollama Cloud state and forwards query updates', async () => {

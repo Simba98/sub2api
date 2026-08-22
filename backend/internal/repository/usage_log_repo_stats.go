@@ -279,6 +279,8 @@ func (r *usageLogRepository) GetAccountTodayStats(ctx context.Context, accountID
 	query := `
 		SELECT
 			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
@@ -294,6 +296,8 @@ func (r *usageLogRepository) GetAccountTodayStats(ctx context.Context, accountID
 		query,
 		[]any{accountID, today},
 		&stats.Requests,
+		&stats.InputTokens,
+		&stats.OutputTokens,
 		&stats.Tokens,
 		&stats.Cost,
 		&stats.StandardCost,
@@ -309,6 +313,8 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 	query := `
 		SELECT
 			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
@@ -324,6 +330,8 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 		query,
 		[]any{accountID, startTime},
 		&stats.Requests,
+		&stats.InputTokens,
+		&stats.OutputTokens,
 		&stats.Tokens,
 		&stats.Cost,
 		&stats.StandardCost,
@@ -346,6 +354,8 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 		SELECT
 			account_id,
 			COUNT(*) as requests,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
 			COALESCE(SUM(total_cost), 0) as standard_cost,
@@ -366,6 +376,8 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 		if err := rows.Scan(
 			&accountID,
 			&stats.Requests,
+			&stats.InputTokens,
+			&stats.OutputTokens,
 			&stats.Tokens,
 			&stats.Cost,
 			&stats.StandardCost,
