@@ -391,6 +391,14 @@ export async function getBatchUsage(accountIds: number[], force?: boolean): Prom
   return data
 }
 
+export async function setUsageWindows(
+  id: number,
+  windows: { five_hour_reset_at?: string | null; seven_day_reset_at?: string | null }
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/usage-windows`, windows)
+  return data
+}
+
 /**
  * Clear account rate limit status
  * @param id - Account ID
@@ -1086,6 +1094,7 @@ export const accountsAPI = {
   clearError,
   getUsage,
   getBatchUsage,
+  setUsageWindows,
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,
