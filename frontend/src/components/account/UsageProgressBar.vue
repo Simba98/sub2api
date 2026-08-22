@@ -4,16 +4,20 @@
     <div
       v-if="windowStats && (windowStats.requests > 0 || windowStats.tokens > 0)"
       class="mb-0.5 flex items-center"
+      :title="statsTooltip"
     >
       <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
           {{ formatRequests }} req
         </span>
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-          {{ formatTokens }}
+          I {{ formatInputTokens }} · O {{ formatOutputTokens }} · T {{ formatTokens }}
         </span>
         <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
           A ${{ formatAccountCost }}
+        </span>
+        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.standardCost')">
+          S ${{ formatStandardCost }}
         </span>
         <span
           v-if="windowStats?.user_cost != null"
@@ -208,14 +212,29 @@ const formatTokens = computed(() => {
   return formatCompactNumber(props.windowStats.tokens)
 })
 
+const formatInputTokens = computed(() => formatCompactNumber(props.windowStats?.input_tokens ?? 0))
+const formatOutputTokens = computed(() => formatCompactNumber(props.windowStats?.output_tokens ?? 0))
+
 const formatAccountCost = computed(() => {
   if (!props.windowStats) return '0.00'
-  return (props.windowStats.standard_cost ?? props.windowStats.cost).toFixed(2)
+  return props.windowStats.cost.toFixed(2)
 })
+
+const formatStandardCost = computed(() => (props.windowStats?.standard_cost ?? props.windowStats?.cost ?? 0).toFixed(2))
 
 const formatUserCost = computed(() => {
   if (!props.windowStats || props.windowStats.user_cost == null) return '0.00'
   return props.windowStats.user_cost.toFixed(2)
 })
+
+const statsTooltip = computed(() => [
+  `${t('usage.requests')}: ${props.windowStats?.requests ?? 0}`,
+  `${t('usage.inputTokens')}: ${props.windowStats?.input_tokens ?? 0}`,
+  `${t('usage.outputTokens')}: ${props.windowStats?.output_tokens ?? 0}`,
+  `${t('usage.totalTokens')}: ${props.windowStats?.tokens ?? 0}`,
+  `${t('usage.accountBilled')}: $${formatAccountCost.value}`,
+  `${t('usage.standardCost')}: $${formatStandardCost.value}`,
+  `${t('usage.userBilled')}: $${formatUserCost.value}`
+].join('\n'))
 
 </script>

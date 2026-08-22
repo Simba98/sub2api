@@ -143,6 +143,8 @@ func NewUsageCache() *UsageCache {
 // user_cost: 用户/API Key 口径费用（actual_cost，受分组倍率影响）
 type WindowStats struct {
 	Requests     int64   `json:"requests"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
 	Tokens       int64   `json:"tokens"`
 	Cost         float64 `json:"cost"`
 	StandardCost float64 `json:"standard_cost"`
@@ -373,6 +375,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	if account.Platform == PlatformGemini {
 		usage, err := s.getGeminiUsage(ctx, account)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -382,6 +387,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
 	if account.Platform == PlatformAntigravity {
 		usage, err := s.getAntigravityUsage(ctx, account)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -390,10 +398,20 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	if account.Platform == PlatformGrok {
 		usage, err := s.getGrokUsage(ctx, account, forceProbe)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil && usage != nil && usage.Error == "" {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
+	}
+
+	if account.Type == AccountTypeAPIKey && hasExplicitAPIKeyWindow(account.Extra) {
+		now := time.Now()
+		usage := &UsageInfo{UpdatedAt: &now}
+		s.applyExplicitAPIKeyWindows(ctx, account, usage, now)
+		return usage, nil
 	}
 
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
@@ -1422,11 +1440,68 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 
 	return &WindowStats{
 		Requests:     stats.Requests,
+		InputTokens:  stats.InputTokens,
+		OutputTokens: stats.OutputTokens,
 		Tokens:       stats.Tokens,
 		Cost:         stats.Cost,
 		StandardCost: stats.StandardCost,
 		UserCost:     stats.UserCost,
 	}, nil
+}
+
+const (
+	APIKeyFiveHourResetAtExtraKey = "apikey_5h_reset_at"
+	APIKeySevenDayResetAtExtraKey = "apikey_7d_reset_at"
+)
+
+func hasExplicitAPIKeyWindow(extra map[string]any) bool {
+	for _, key := range []string{APIKeyFiveHourResetAtExtraKey, APIKeySevenDayResetAtExtraKey} {
+		if value, ok := extra[key]; ok && value != nil && strings.TrimSpace(fmt.Sprint(value)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func explicitAPIKeyProgress(extra map[string]any, key string, duration time.Duration, now time.Time) (*UsageProgress, time.Time) {
+	raw, ok := extra[key]
+	if !ok || raw == nil {
+		return nil, time.Time{}
+	}
+	resetAt, err := time.Parse(time.RFC3339, strings.TrimSpace(fmt.Sprint(raw)))
+	if err != nil || !now.Before(resetAt) {
+		return nil, time.Time{}
+	}
+	remaining := int(resetAt.Sub(now).Seconds())
+	return &UsageProgress{ResetsAt: &resetAt, RemainingSeconds: remaining}, resetAt.Add(-duration)
+}
+
+func (s *AccountUsageService) applyExplicitAPIKeyWindows(ctx context.Context, account *Account, usage *UsageInfo, now time.Time) {
+	if account == nil || account.Type != AccountTypeAPIKey || usage == nil {
+		return
+	}
+	windows := []struct {
+		key      string
+		duration time.Duration
+		target   **UsageProgress
+	}{
+		{APIKeyFiveHourResetAtExtraKey, 5 * time.Hour, &usage.FiveHour},
+		{APIKeySevenDayResetAtExtraKey, 7 * 24 * time.Hour, &usage.SevenDay},
+	}
+	for _, window := range windows {
+		if raw, explicitlySet := account.Extra[window.key]; !explicitlySet || raw == nil {
+			continue
+		}
+		progress, start := explicitAPIKeyProgress(account.Extra, window.key, window.duration, now)
+		*window.target = progress
+		if progress == nil || s.usageLogRepo == nil {
+			continue
+		}
+		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, start)
+		if err == nil {
+			progress.WindowStats = windowStatsFromAccountStats(stats)
+		}
+	}
 }
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
@@ -1494,6 +1569,8 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 	}
 	return &WindowStats{
 		Requests:     stats.Requests,
+		InputTokens:  stats.InputTokens,
+		OutputTokens: stats.OutputTokens,
 		Tokens:       stats.Tokens,
 		Cost:         stats.Cost,
 		StandardCost: stats.StandardCost,
