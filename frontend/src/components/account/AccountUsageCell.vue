@@ -1,5 +1,11 @@
 <template>
   <div ref="rootRef" v-if="showUsageWindows">
+    <div v-if="account.type === 'apikey' && account.platform !== 'gemini' && hasExplicitAPIKeyWindows" class="mb-1 space-y-1">
+      <div class="space-y-1">
+        <UsageProgressBar v-if="usageInfo?.five_hour" label="5h" :utilization="usageInfo.five_hour.utilization" :resets-at="usageInfo.five_hour.resets_at" :window-stats="usageInfo.five_hour.window_stats" color="indigo" />
+        <UsageProgressBar v-if="usageInfo?.seven_day" label="7d" :utilization="usageInfo.seven_day.utilization" :resets-at="usageInfo.seven_day.resets_at" :window-stats="usageInfo.seven_day.window_stats" color="emerald" />
+      </div>
+    </div>
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -755,8 +761,14 @@ let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
+const hasExplicitAPIKeyWindows = computed(() => {
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  return extra?.apikey_5h_reset_at != null || extra?.apikey_7d_reset_at != null
+})
+
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
+  if (props.account.type === 'apikey' && hasExplicitAPIKeyWindows.value) return true
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
   // 多协议 API Key 供应商：apikey 账号也有滚动用量窗口（coding plan / 订阅）或余额，
@@ -768,6 +780,7 @@ const showUsageWindows = computed(() => {
 })
 
 const shouldFetchUsage = computed(() => {
+  if (props.account.type === 'apikey' && hasExplicitAPIKeyWindows.value) return true
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
