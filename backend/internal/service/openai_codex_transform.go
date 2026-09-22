@@ -1310,6 +1310,10 @@ func extractTextFromContent(content any) string {
 // losslessly promoted; mixed or malformed content is retained as developer.
 func extractSystemMessagesFromInput(reqBody map[string]any, omitPromoted bool) bool {
 	input, ok := reqBody["input"].([]any)
+	if item, single := reqBody["input"].(map[string]any); single && item["role"] == "system" {
+		input, ok = []any{item}, true
+		reqBody["input"] = input
+	}
 	if !ok || len(input) == 0 {
 		return false
 	}
