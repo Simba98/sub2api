@@ -84,6 +84,11 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 		reasoningEffort = last
 	case "xhigh", "extrahigh":
 		reasoningEffort = "xhigh"
+	case "max":
+		if gpt6ReasoningSuffix(modelID) == "" {
+			return trimmed, "", false
+		}
+		reasoningEffort = "max"
 	default:
 		return trimmed, "", false
 	}
@@ -95,7 +100,7 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 	switch strings.TrimSpace(effort) {
 	case "low", "medium", "high":
 		return effort
-	case "xhigh":
+	case "xhigh", "max":
 		return "max"
 	default:
 		return ""

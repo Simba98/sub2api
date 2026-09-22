@@ -826,6 +826,9 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 		if requireCompact {
 			return resolveOpenAICompactForwardModel(account, upstreamModel)
 		}
+		if account.UsesOpenAICodexProtocol() && gpt6ReasoningSuffix(upstreamModel) != "" {
+			return "gpt-6-astra"
+		}
 		return upstreamModel
 	}
 
