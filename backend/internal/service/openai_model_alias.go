@@ -38,7 +38,7 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 
 	switch {
-	case normalized == "gpt-6" || normalized == "gpt-6-astra":
+	case normalized == "gpt-6" || normalized == "gpt-6-astra" || gpt6ReasoningSuffix(normalized) != "":
 		return "gpt-6-astra"
 	case strings.Contains(normalized, "gpt-5.6-sol"):
 		return "gpt-5.6-sol"
@@ -103,7 +103,7 @@ func isOpenAIGPT56Model(model string) bool {
 // The public "gpt-6" alias routes to Astra; unrelated GPT-6 families stay excluded.
 func isOpenAIGPT6AstraModel(model string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(model)
-	return normalized == "gpt-6" || normalized == "gpt-6-astra" || strings.HasPrefix(normalized, "gpt-6-astra-")
+	return normalized == "gpt-6" || normalized == "gpt-6-astra" || strings.HasPrefix(normalized, "gpt-6-astra-") || gpt6ReasoningSuffix(normalized) != ""
 }
 
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {

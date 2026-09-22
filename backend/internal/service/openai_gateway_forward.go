@@ -40,6 +40,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, filterErr
 	}
 	body = filteredBody
+	if account.UsesOpenAICodexProtocol() {
+		var suffixErr error
+		body, suffixErr = normalizeGPT6ResponsesReasoningSuffix(body)
+		if suffixErr != nil {
+			return nil, suffixErr
+		}
+	}
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
