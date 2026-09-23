@@ -17,7 +17,7 @@ import yaml
 FULL_CONFIG = Path('.goreleaser.yaml')
 SIMPLE_CONFIG = Path('.goreleaser.simple.yaml')
 VERSION_FILE = Path('backend/cmd/server/VERSION')
-VERSION_RE = re.compile(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?')
+VERSION_RE = re.compile(r'\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?')
 
 
 def config(simple=False):
