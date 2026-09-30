@@ -124,23 +124,48 @@ func TestGroupUsageRollupTriggerSerializesLateHistoricalInsertWithPublish(t *tes
 }
 
 func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		timezone     string
+		insertedAt   string
+		insertedDate string
+	}{
+		{"utc", "UTC", "2026-09-30T23:59:59Z", "2026-09-30"},
+		{"shanghai_before_midnight", "Asia/Shanghai", "2026-09-30T15:59:59Z", "2026-09-30"},
+		{"shanghai_utc_date_differs", "Asia/Shanghai", "2026-09-30T16:59:59Z", "2026-10-01"},
+		{"new_york_previous_day", "America/New_York", "2026-09-30T23:59:59-04:00", "2026-09-30"},
+		{"new_york_dst", "America/New_York", "2026-03-08T23:59:59-04:00", "2026-03-08"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t, tt.timezone, tt.insertedAt, tt.insertedDate)
+		})
+	}
+}
+
+func testGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *testing.T, timezone, insertedAt, insertedDate string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
 	seedTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
+	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, seedTx, timezone))
 	_, err := seedTx.ExecContext(ctx, `
 		INSERT INTO groups (id) VALUES (10);
 		INSERT INTO users (id) VALUES (1);
-		UPDATE usage_group_rollup_state
-		SET closed_before = CURRENT_DATE
-		WHERE id = 1;
 	`)
+	require.NoError(t, err)
+	_, err = seedTx.ExecContext(ctx, `
+		UPDATE usage_group_rollup_state
+		SET closed_before = $1::date, timezone_name = $2
+		WHERE id = 1;
+	`, insertedDate, timezone)
 	require.NoError(t, err)
 	require.NoError(t, seedTx.Commit())
 
 	syncTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
 	defer func() { _ = syncTx.Rollback() }()
+	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, syncTx, timezone))
 	var stateID int16
 	require.NoError(t, syncTx.QueryRowContext(ctx, `
 		SELECT id
@@ -151,7 +176,7 @@ func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *tes
 
 	insertTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
 	defer func() { _ = insertTx.Rollback() }()
-	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, insertTx, "Asia/Shanghai"))
+	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, insertTx, timezone))
 	var insertBackendPID int
 	require.NoError(t, insertTx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&insertBackendPID))
 
@@ -159,8 +184,8 @@ func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *tes
 	go func() {
 		_, insertErr := insertTx.ExecContext(ctx, `
 			INSERT INTO usage_logs (id, user_id, group_id, actual_cost, created_at)
-			VALUES (1, 1, 10, 1.25, CURRENT_TIMESTAMP)
-		`)
+			VALUES (1, 1, 10, 1.25, $1::timestamptz)
+		`, insertedAt)
 		insertResult <- insertErr
 	}()
 
@@ -172,11 +197,12 @@ func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *tes
 		require.True(t, blocked, "跨越零点的在途写入必须与水位发布串行化")
 	}
 
+	// Simulate publication after local midnight while the previous day's insert waits.
 	_, err = syncTx.ExecContext(ctx, `
 		UPDATE usage_group_rollup_state
-		SET closed_before = CURRENT_DATE + 1
+		SET closed_before = $1::date + 1
 		WHERE id = 1
-	`)
+	`, insertedDate)
 	require.NoError(t, err)
 	require.NoError(t, syncTx.Commit())
 
@@ -188,17 +214,13 @@ func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *tes
 	}
 	require.NoError(t, insertTx.Commit())
 
-	var currentDate string
-	require.NoError(t, integrationDB.QueryRowContext(ctx, `
-		SELECT CURRENT_DATE::text
-	`).Scan(&currentDate))
 	var closedBefore string
 	err = integrationDB.QueryRowContext(ctx, fmt.Sprintf(
 		"SELECT closed_before::text FROM %s.usage_group_rollup_state WHERE id = 1",
 		pq.QuoteIdentifier(schema),
 	)).Scan(&closedBefore)
 	require.NoError(t, err)
-	require.Equal(t, currentDate, closedBefore)
+	require.Equal(t, insertedDate, closedBefore)
 }
 
 func TestGroupUsageRollupTriggerKeepsWatermarkForTodayInsert(t *testing.T) {
