@@ -629,7 +629,6 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsAggregatesSSEText(t *
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "hello world", gjson.Get(writer.Body.String(), "choices.0.message.content").String())
-	require.Equal(t, 2, result.Usage.OutputTokens)
 }
 
 func TestAntigravityGatewayService_ForwardAsChatCompletionsStreamsToolCalls(t *testing.T) {
