@@ -139,6 +139,23 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertEqual(output['owner_lower'], 'exampleowner')
         self.assertEqual(len(json.loads(output['matrix'])['include']), 5)
 
+    def test_fork_release_versions_are_preserved(self):
+        for version in ('0.2.8', '0.2.8.1', '0.2.7.2', '0.2.8-rc.1'):
+            with self.subTest(version=version):
+                with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(subprocess, 'check_output', return_value='a' * 40 + '\n'):
+                    release.plan(argparse.Namespace(ref='v' + version, dry_run=False, simple=False))
+                self.assertEqual(release.VERSION_FILE.read_text(), version + '\n')
+                output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+                self.assertEqual(output['version'], version)
+                self.assertEqual(output['tag'], 'v' + version)
+                self.assertEqual(release.archive_name(version, {'goos': 'linux', 'goarch': 'amd64'}),
+                                 f'sub2api_{version}_linux_amd64.tar.gz')
+
+    def test_invalid_fork_versions_are_rejected(self):
+        for version in ('0.2', '0.2.8.', '0.2.8.x', '0.2.8.1.2', '../0.2.8.1'):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                release.archive_name(version, {'goos': 'linux', 'goarch': 'amd64'})
+
     def test_docker_commands_do_not_publish_during_dry_run(self):
         fake_bin = Path('bin')
         fake_bin.mkdir()
