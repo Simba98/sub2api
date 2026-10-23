@@ -1900,6 +1900,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	usage := &OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
+	streamDoneItems := newResponsesStreamOutputItems()
 	var firstTokenMs *int
 	responseID := ""
 	ttftMode := s.openAITTFTMode(ctx)
@@ -2072,6 +2073,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				}
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
+			// Terminal-only consumers (including Copilot) need the completed tool
+			// items even when the upstream omits them from response.output.
+			outputPayload := []byte(openAICompatPayloadWithEventType(string(dataBytes), eventType))
+			streamDoneItems.Observe(outputPayload)
+			if streamDoneItems.HasItems() {
+				if normalizedData, normalized := normalizeResponsesStreamingTerminalOutput(outputPayload, nil, streamDoneItems, nil); normalized {
+					dataBytes = normalizedData
+					trimmedData = strings.TrimSpace(string(normalizedData))
+					line = "data: " + string(normalizedData)
+				}
+			}
 			createdAtTracker.Observe(dataBytes, eventType)
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
