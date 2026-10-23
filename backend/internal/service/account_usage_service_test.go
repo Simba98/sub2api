@@ -5,7 +5,74 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
+
+type accountUsageWindowStatsRepo struct {
+	UsageLogRepository
+	statsByStart map[int64]*usagestats.AccountStats
+	calls        []time.Time
+}
+
+func (r *accountUsageWindowStatsRepo) GetAccountWindowStats(_ context.Context, _ int64, startTime time.Time) (*usagestats.AccountStats, error) {
+	r.calls = append(r.calls, startTime)
+	if stats, ok := r.statsByStart[startTime.UnixNano()]; ok {
+		return stats, nil
+	}
+	return &usagestats.AccountStats{}, nil
+}
+
+func TestApplyExplicitAPIKeyWindows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	fiveReset := now.Add(2 * time.Hour)
+	sevenReset := now.Add(48 * time.Hour)
+	repo := &accountUsageWindowStatsRepo{statsByStart: map[int64]*usagestats.AccountStats{
+		fiveReset.Add(-5 * time.Hour).UnixNano():       {Requests: 2, InputTokens: 10, OutputTokens: 20, Tokens: 35, Cost: 1, StandardCost: 2, UserCost: 3},
+		sevenReset.Add(-7 * 24 * time.Hour).UnixNano(): {Requests: 4},
+	}}
+	svc := &AccountUsageService{usageLogRepo: repo}
+	usage := &UsageInfo{GeminiProDaily: &UsageProgress{Utilization: 50}}
+	account := &Account{ID: 9, Type: AccountTypeAPIKey, Extra: map[string]any{
+		APIKeyFiveHourResetAtExtraKey: fiveReset.Format(time.RFC3339),
+		APIKeySevenDayResetAtExtraKey: sevenReset.Format(time.RFC3339),
+	}}
+
+	svc.applyExplicitAPIKeyWindows(context.Background(), account, usage, now)
+
+	if usage.GeminiProDaily == nil {
+		t.Fatal("explicit windows must preserve Gemini quota fields")
+	}
+	if usage.FiveHour == nil || usage.FiveHour.WindowStats == nil {
+		t.Fatal("expected explicit five-hour window stats")
+	}
+	if usage.FiveHour.WindowStats.InputTokens != 10 || usage.FiveHour.WindowStats.OutputTokens != 20 {
+		t.Fatalf("unexpected token breakdown: %+v", usage.FiveHour.WindowStats)
+	}
+	if len(repo.calls) != 2 || !repo.calls[0].Equal(fiveReset.Add(-5*time.Hour)) || !repo.calls[1].Equal(sevenReset.Add(-7*24*time.Hour)) {
+		t.Fatalf("unexpected stats starts: %v", repo.calls)
+	}
+}
+
+func TestApplyExplicitAPIKeyWindowsOmitsExpiredOverride(t *testing.T) {
+	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	repo := &accountUsageWindowStatsRepo{}
+	svc := &AccountUsageService{usageLogRepo: repo}
+	automatic := &UsageProgress{Utilization: 90}
+	usage := &UsageInfo{FiveHour: automatic}
+	account := &Account{Type: AccountTypeAPIKey, Extra: map[string]any{
+		APIKeyFiveHourResetAtExtraKey: now.Add(-time.Minute).Format(time.RFC3339),
+	}}
+
+	svc.applyExplicitAPIKeyWindows(context.Background(), account, usage, now)
+
+	if usage.FiveHour != nil {
+		t.Fatal("expired explicit override must suppress automatic estimate and be omitted")
+	}
+	if len(repo.calls) != 0 {
+		t.Fatal("expired window must not query stats")
+	}
+}
 
 type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
@@ -112,6 +179,50 @@ func TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2(t *testing.T) {
 	}
 	if shouldRefreshOpenAICodexSnapshot(normalNoWS, usage, now) {
 		t.Fatal("expected non-WSv2 normal account to skip codex probe refresh")
+	}
+}
+
+func TestAccountUsageService_AddWindowStatsAttachesAnthropicSevenDay(t *testing.T) {
+	now := time.Now().UTC()
+	fiveHourStart := now.Add(-2 * time.Hour).Truncate(time.Second)
+	fiveHourEnd := now.Add(3 * time.Hour).Truncate(time.Second)
+	sevenDayReset := now.Add(48 * time.Hour).Truncate(time.Second)
+	sevenDayStart := sevenDayReset.Add(-7 * 24 * time.Hour)
+
+	repo := &accountUsageWindowStatsRepo{statsByStart: map[int64]*usagestats.AccountStats{
+		fiveHourStart.UnixNano(): {
+			Requests:     5,
+			Tokens:       50,
+			StandardCost: 0.5,
+		},
+		sevenDayStart.UnixNano(): {
+			Requests:     70,
+			Tokens:       700,
+			StandardCost: 7,
+		},
+	}}
+	svc := &AccountUsageService{usageLogRepo: repo, cache: NewUsageCache()}
+	usage := &UsageInfo{
+		FiveHour: &UsageProgress{Utilization: 10},
+		SevenDay: &UsageProgress{Utilization: 20, ResetsAt: &sevenDayReset},
+	}
+	account := &Account{ID: 42, SessionWindowStart: &fiveHourStart, SessionWindowEnd: &fiveHourEnd}
+
+	svc.addWindowStats(context.Background(), account, usage)
+
+	if usage.FiveHour.WindowStats == nil || usage.FiveHour.WindowStats.Requests != 5 {
+		t.Fatalf("FiveHour.WindowStats = %#v, want requests=5", usage.FiveHour.WindowStats)
+	}
+	if usage.SevenDay.WindowStats == nil || usage.SevenDay.WindowStats.Requests != 70 {
+		t.Fatalf("SevenDay.WindowStats = %#v, want requests=70", usage.SevenDay.WindowStats)
+	}
+	if len(repo.calls) != 2 {
+		t.Fatalf("GetAccountWindowStats calls = %d, want 2", len(repo.calls))
+	}
+
+	svc.addWindowStats(context.Background(), account, usage)
+	if len(repo.calls) != 2 {
+		t.Fatalf("GetAccountWindowStats calls after cache hit = %d, want 2", len(repo.calls))
 	}
 }
 
@@ -253,6 +364,64 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 		}
 		if progress.Utilization != 0 {
 			t.Fatalf("expected Utilization=0 for expired 7d window, got %v", progress.Utilization)
+		}
+	})
+}
+
+func TestCodexWindowStart(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	t.Run("uses reset minus 5h window length", func(t *testing.T) {
+		extra := map[string]any{
+			"codex_5h_reset_at":       "2026-03-16T15:30:00Z",
+			"codex_5h_window_minutes": 300,
+		}
+		resetAt := time.Date(2026, 3, 16, 15, 30, 0, 0, time.UTC)
+		progress := &UsageProgress{ResetsAt: &resetAt}
+		got := codexWindowStatsStart(extra, progress, "5h", 5*time.Hour, now)
+		want := time.Date(2026, 3, 16, 10, 30, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Fatalf("codexWindowStart() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("uses reset minus 7d window length", func(t *testing.T) {
+		extra := map[string]any{
+			"codex_7d_reset_at":       "2026-03-20T00:00:00Z",
+			"codex_7d_window_minutes": 10080,
+		}
+		resetAt := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+		progress := &UsageProgress{ResetsAt: &resetAt}
+		got := codexWindowStatsStart(extra, progress, "7d", 7*24*time.Hour, now)
+		want := time.Date(2026, 3, 13, 0, 0, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Fatalf("codexWindowStart() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("falls back to rolling window when metadata is missing", func(t *testing.T) {
+		resetAt := now.Add(2 * time.Hour)
+		progress := &UsageProgress{ResetsAt: &resetAt}
+		got := codexWindowStatsStart(map[string]any{}, progress, "5h", 5*time.Hour, now)
+		want := now.Add(-3 * time.Hour)
+		if !got.Equal(want) {
+			t.Fatalf("codexWindowStart() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("falls back to rolling window when reset is expired", func(t *testing.T) {
+		extra := map[string]any{
+			"codex_5h_reset_at":       "2026-03-16T10:00:00Z",
+			"codex_5h_window_minutes": 300,
+		}
+		resetAt := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
+		progress := &UsageProgress{ResetsAt: &resetAt}
+		got := codexWindowStatsStart(extra, progress, "5h", 5*time.Hour, now)
+		want := now.Add(-5 * time.Hour)
+		if !got.Equal(want) {
+			t.Fatalf("codexWindowStart() = %v, want %v", got, want)
 		}
 	})
 }
