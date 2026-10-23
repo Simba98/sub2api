@@ -212,6 +212,21 @@ underscores_in_headers on;
 
 Nginx 默认会丢弃名称中含下划线的请求头（如 `session_id`），这会导致多账号环境下的粘性会话功能失效。
 
+## VSCode Harness 与 HTTP Responses 续链
+
+若 HTTP Responses 请求返回 `previous_response_id requires an OpenAI API-key account for HTTP requests`，表示该续链请求未能使用支持此能力的 OpenAI API-key 账号。OAuth HTTP 路径保留此限制；响应归属和账号粘连缓存不保存完整对话历史，启用账号 WebSocket 配置也不会自动将 HTTP 入站转换为 WebSocket 上游。
+
+可选择以下方式：
+
+- **API-key 原生续链**：从首轮使用支持 Responses 状态存储的上游，并保持创建响应的 key/project。仅在 Sub2API 中将渠道标记为 API-key，并不保证渠道背后的中转支持状态存储；OAuth 已生成的 response ID 不能直接切换到另一 API-key 账号续接，`store=false` 的 HTTP 响应也不能假定可按 ID 恢复。
+- **客户端完整历史回放**：客户端保存并提交完整用户输入、助手输出及必要的 reasoning 上下文，再省略 `previous_response_id`。工具结果必须保留对应调用，例如具有相同 `call_id` 的 `function_call` 和 `function_call_output`。仅发送最新消息或工具结果不是完整回放。
+
+不能仅删除网关校验或 `previous_response_id` 就视为修复，否则可能丢失上下文。客户端若仅提供 response ID 与增量输入，当前 OAuth HTTP 路径没有本地历史恢复机制。这里描述的是 Sub2API 当前实现限制，不代表已验证所有 OAuth 上游均不支持 HTTP 续链；透传该字段能否成功仍取决于具体上游的状态恢复能力。
+
+上游 [#6243](https://github.com/Wei-Shaw/sub2api/issues/6243) 和 [#6524](https://github.com/Wei-Shaw/sub2api/issues/6524) 还涉及另一种情况：`/v1/messages` 兼容转换向上游请求续链失败。当前实现已识别上述错误，并利用原始完整 Messages 请求回退重发；该机制不等于直接 `/v1/responses` 请求拥有历史恢复能力。
+
+Codex CLI 0.163.0 的标准 HTTP 路径提交客户端当前保留的上下文，不使用 `previous_response_id`；WebSocket 路径在历史前缀和请求属性匹配时才使用 ID 与增量。因此，Codex 能正常续轮不代表只发送增量的 HTTP 客户端也能续轮。该版本旧的 `responses_websockets_v2` feature 已移除，实际传输选择取决于 provider 的 `supports_websockets` 和运行时回退。参见官方固定版本的 [请求结构](https://github.com/openai/codex/blob/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/codex-api/src/common.rs) 和 [客户端实现](https://github.com/openai/codex/blob/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/core/src/client.rs)。
+
 ## Codex Fast/Flex 策略说明
 
 管理员后台的 `系统设置 -> 网关服务 -> OpenAI Fast/Flex 策略` 只负责处理请求体中的 `service_tier`，不会修改 Codex 客户端的模型目录，也不会让 Codex UI 自动出现 Speed 或 `/fast` 选项。
