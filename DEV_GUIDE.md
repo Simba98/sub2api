@@ -264,6 +264,8 @@ git add ent/       # 生成的文件也要提交
 4. 流式客户端必须逐事件转换文本与 `functionCall`，输出 OpenAI `tool_calls`，并在工具调用结束时使用 `finish_reason: tool_calls`。
 5. 回归测试至少覆盖：多段文本 + metadata-only 尾帧、纯工具调用、文本加工具调用、usage 和 `[DONE]`。
 
+**当前限制**：非流式收集器仍优先使用最后一个含 `parts` 的事件；仅尾帧携带 usage 时统计可能丢失。文本累计回归不能据此假定尾帧 usage 已保留；流式工具调用的 usage 断言仍应保留。
+
 ## 五、常用命令速查
 
 ### 数据库操作
