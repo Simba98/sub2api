@@ -579,12 +579,8 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 				})
 			}
 		case "input_file":
-			src := dataURIToAnthropicFileSource(p.FileData)
-			if src != nil {
-				blocks = append(blocks, AnthropicContentBlock{
-					Type:   "document",
-					Source: src,
-				})
+			if block := responsesFileToAnthropicBlock(p); block != nil {
+				blocks = append(blocks, *block)
 			}
 		}
 	}
@@ -593,6 +589,39 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 		return json.Marshal("")
 	}
 	return json.Marshal(blocks)
+}
+
+func AnthropicRequestHasFileUpload(req *AnthropicRequest) bool {
+	if req == nil {
+		return false
+	}
+	for _, msg := range req.Messages {
+		if anthropicContentHasFileUpload(msg.Content) {
+			return true
+		}
+	}
+	return anthropicContentHasFileUpload(req.System)
+}
+
+func anthropicContentHasFileUpload(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var blocks []AnthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return false
+	}
+	for _, block := range blocks {
+		switch block.Type {
+		case "document", "file":
+			return true
+		case "tool_result":
+			if anthropicContentHasFileUpload(block.Content) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // convertResponsesAssistantToAnthropicContent converts a Responses assistant
@@ -651,6 +680,10 @@ func fromResponsesCallIDToAnthropic(id string) string {
 
 // dataURIToAnthropicImageSource parses a data URI into an AnthropicImageSource.
 func dataURIToAnthropicImageSource(dataURI string) *AnthropicImageSource {
+	return dataURIToAnthropicSource(dataURI)
+}
+
+func dataURIToAnthropicSource(dataURI string) *AnthropicImageSource {
 	if !strings.HasPrefix(dataURI, "data:") {
 		return nil
 	}
@@ -673,10 +706,21 @@ func dataURIToAnthropicImageSource(dataURI string) *AnthropicImageSource {
 	}
 }
 
-// dataURIToAnthropicFileSource parses a data URI into a document source.
-// file_id-only parts are not convertible here and stay dropped.
-func dataURIToAnthropicFileSource(fileData string) *AnthropicImageSource {
-	return dataURIToAnthropicImageSource(fileData)
+func responsesFileToAnthropicBlock(part ResponsesContentPart) *AnthropicContentBlock {
+	block := AnthropicContentBlock{Type: "document", Title: part.Filename}
+	switch {
+	case part.FileData != "":
+		src := dataURIToAnthropicSource(part.FileData)
+		if src == nil {
+			return nil
+		}
+		block.Source = src
+	case part.FileURL != "":
+		block.Source = &AnthropicImageSource{Type: "url", URL: part.FileURL}
+	default:
+		return nil
+	}
+	return &block
 }
 
 // mergeConsecutiveMessages merges consecutive messages with the same role
