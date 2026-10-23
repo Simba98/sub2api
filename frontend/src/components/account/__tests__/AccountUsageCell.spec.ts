@@ -131,7 +131,7 @@ describe('AccountUsageCell', () => {
 
   })
 
-  it('shows explicit API-key usage windows without changing its platform branch', async () => {
+  it.each(['openai', 'gemini'] as const)('shows explicit %s API-key usage windows without changing platform', async (platform) => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 0,
@@ -145,7 +145,7 @@ describe('AccountUsageCell', () => {
       props: {
         account: makeAccount({
           id: 77,
-          platform: 'openai',
+          platform,
           type: 'apikey',
           extra: { apikey_5h_reset_at: '2027-01-01T00:00:00Z' }
         })

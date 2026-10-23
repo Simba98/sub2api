@@ -1,6 +1,6 @@
 <template>
   <div ref="rootRef" v-if="showUsageWindows">
-    <div v-if="account.type === 'apikey' && account.platform !== 'gemini' && hasExplicitAPIKeyWindows" class="mb-1 space-y-1">
+    <div v-if="account.type === 'apikey' && hasExplicitAPIKeyWindows" class="mb-1 space-y-1">
       <div class="space-y-1">
         <UsageProgressBar v-if="usageInfo?.five_hour" label="5h" :utilization="usageInfo.five_hour.utilization" :resets-at="usageInfo.five_hour.resets_at" :window-stats="usageInfo.five_hour.window_stats" color="indigo" />
         <UsageProgressBar v-if="usageInfo?.seven_day" label="7d" :utilization="usageInfo.seven_day.utilization" :resets-at="usageInfo.seven_day.resets_at" :window-stats="usageInfo.seven_day.window_stats" color="emerald" />
@@ -8,7 +8,7 @@
     </div>
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
-      v-if="
+      v-else-if="
         account.platform === 'anthropic' &&
         (account.type === 'oauth' || account.type === 'setup-token')
       "
