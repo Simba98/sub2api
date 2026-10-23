@@ -151,12 +151,28 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	if account != nil && account.UsesOpenAICodexProtocol() {
+		if hasOpenAIResponsesSystemMessage(body) {
+			return nil, &openAIPassthroughRollbackError{Reason: "system_message"}
+		}
+		if rejectReason := detectOpenAIPassthroughInstructionsRejectReason(reqModel, body); rejectReason != "" {
+			logOpenAIPassthroughInstructionsRejected(ctx, c, account, reqModel, rejectReason, body)
+			return nil, &openAIPassthroughRollbackError{Reason: rejectReason}
+		}
 		if isOpenAICodexModel(reqModel) && !gjson.GetBytes(body, "instructions").Exists() {
 			nextBody, setErr := sjson.SetBytes(body, "instructions", defaultCodexSynthInstructions(reqModel))
 			if setErr != nil {
 				return nil, fmt.Errorf("set passthrough codex instructions: %w", setErr)
 			}
 			body = nextBody
+		}
+
+		if model := gjson.GetBytes(body, "model").String(); gpt6ReasoningSuffix(model) != "" {
+			nextBody, setErr := sjson.SetBytes(body, "model", "gpt-6-astra")
+			if setErr != nil {
+				return nil, fmt.Errorf("normalize GPT-6 passthrough model: %w", setErr)
+			}
+			body = nextBody
+			upstreamPassthroughModel = "gpt-6-astra"
 		}
 
 		normalizedBody, normalized, err := normalizeOpenAIPassthroughOAuthBody(body, isOpenAIResponsesCompactPath(c))

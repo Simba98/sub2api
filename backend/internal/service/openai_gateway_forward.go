@@ -18,6 +18,17 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type openAIPassthroughRollbackError struct {
+	Reason string
+}
+
+func (e *openAIPassthroughRollbackError) Error() string {
+	if e == nil {
+		return "openai passthrough rollback"
+	}
+	return fmt.Sprintf("openai passthrough rollback: %s", strings.TrimSpace(e.Reason))
+}
+
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
@@ -30,6 +41,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, filterErr
 	}
 	body = filteredBody
+	if account.UsesOpenAICodexProtocol() {
+		var suffixErr error
+		body, suffixErr = normalizeGPT6ResponsesReasoningSuffix(body)
+		if suffixErr != nil {
+			return nil, suffixErr
+		}
+	}
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
@@ -275,7 +293,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, mappedModel)
 		// 国产模型默认 effort 补充：也要用 mappedModel 判定是否是 passback-required 上游。
 		reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-		return s.forwardOpenAIPassthrough(
+		result, err := s.forwardOpenAIPassthrough(
 			ctx,
 			c,
 			account,
@@ -287,6 +305,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			reqStream,
 			startTime,
 		)
+		if err == nil {
+			return result, nil
+		}
+		var rollbackErr *openAIPassthroughRollbackError
+		if !errors.As(err, &rollbackErr) {
+			return nil, err
+		}
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI 自动透传] 回退到普通 responses 转发: account=%d model=%s reason=%s", account.ID, reqModel, rollbackErr.Reason)
 	}
 
 	bodyModified := false
