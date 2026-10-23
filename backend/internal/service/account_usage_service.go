@@ -98,6 +98,11 @@ type windowStatsCache struct {
 	timestamp time.Time
 }
 
+type windowStatsCacheKey struct {
+	accountID     int64
+	startUnixNano int64
+}
+
 // antigravityUsageCache 缓存 Antigravity 额度数据
 type antigravityUsageCache struct {
 	usageInfo *UsageInfo
@@ -118,7 +123,7 @@ const (
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
 	apiCache          sync.Map           // accountID -> *apiUsageCache
-	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
+	windowStatsCache  sync.Map           // windowStatsCacheKey -> *windowStatsCache
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
@@ -138,6 +143,8 @@ func NewUsageCache() *UsageCache {
 // user_cost: 用户/API Key 口径费用（actual_cost，受分组倍率影响）
 type WindowStats struct {
 	Requests     int64   `json:"requests"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
 	Tokens       int64   `json:"tokens"`
 	Cost         float64 `json:"cost"`
 	StandardCost float64 `json:"standard_cost"`
@@ -366,6 +373,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	if account.Platform == PlatformGemini {
 		usage, err := s.getGeminiUsage(ctx, account)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -375,6 +385,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
 	if account.Platform == PlatformAntigravity {
 		usage, err := s.getAntigravityUsage(ctx, account)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -383,10 +396,20 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	if account.Platform == PlatformGrok {
 		usage, err := s.getGrokUsage(ctx, account, forceProbe)
+		if err == nil && account.Type == AccountTypeAPIKey {
+			s.applyExplicitAPIKeyWindows(ctx, account, usage, time.Now())
+		}
 		if err == nil && usage != nil && usage.Error == "" {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
 		return usage, err
+	}
+
+	if account.Type == AccountTypeAPIKey && hasExplicitAPIKeyWindow(account.Extra) {
+		now := time.Now()
+		usage := &UsageInfo{UpdatedAt: &now}
+		s.applyExplicitAPIKeyWindows(ctx, account, usage, now)
+		return usage, nil
 	}
 
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
@@ -752,14 +775,14 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(account.Extra, usage.FiveHour, "5h", 5*time.Hour, now)); err == nil {
 		if usage.FiveHour == nil {
 			usage.FiveHour = &UsageProgress{Utilization: 0}
 		}
 		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
+	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(account.Extra, usage.SevenDay, "7d", 7*24*time.Hour, now)); err == nil {
 		if usage.SevenDay == nil {
 			usage.SevenDay = &UsageProgress{Utilization: 0}
 		}
@@ -1350,44 +1373,65 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 		return
 	}
 
-	// 检查窗口统计缓存（1 分钟）
-	var windowStats *WindowStats
-	if cached, ok := s.cache.windowStatsCache.Load(account.ID); ok {
-		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
-			windowStats = cache.stats
-		}
-	}
-
-	// 如果没有缓存，从数据库查询
-	if windowStats == nil {
-		// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-		startTime := account.GetCurrentWindowStartTime()
-
-		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
-		if err != nil {
-			log.Printf("Failed to get window stats for account %d: %v", account.ID, err)
-			return
-		}
-
-		windowStats = &WindowStats{
-			Requests:     stats.Requests,
-			Tokens:       stats.Tokens,
-			Cost:         stats.Cost,
-			StandardCost: stats.StandardCost,
-			UserCost:     stats.UserCost,
-		}
-
-		// 缓存窗口统计（1 分钟）
-		s.cache.windowStatsCache.Store(account.ID, &windowStatsCache{
-			stats:     windowStats,
-			timestamp: time.Now(),
-		})
-	}
-
 	// 为 FiveHour 添加 WindowStats（5h 窗口统计）
 	if usage.FiveHour != nil {
-		usage.FiveHour.WindowStats = windowStats
+		if windowStats, err := s.accountWindowStats(ctx, account.ID, account.GetCurrentWindowStartTime()); err == nil {
+			usage.FiveHour.WindowStats = windowStats
+		} else {
+			log.Printf("Failed to get 5h window stats for account %d: %v", account.ID, err)
+		}
 	}
+
+	if usage.SevenDay != nil {
+		if startTime, ok := usageWindowStartFromReset(usage.SevenDay, 7*24*time.Hour); ok {
+			if windowStats, err := s.accountWindowStats(ctx, account.ID, startTime); err == nil {
+				usage.SevenDay.WindowStats = windowStats
+			} else {
+				log.Printf("Failed to get 7d window stats for account %d: %v", account.ID, err)
+			}
+		}
+	}
+
+	if usage.SevenDaySonnet != nil {
+		if startTime, ok := usageWindowStartFromReset(usage.SevenDaySonnet, 7*24*time.Hour); ok {
+			if windowStats, err := s.accountWindowStats(ctx, account.ID, startTime); err == nil {
+				usage.SevenDaySonnet.WindowStats = windowStats
+			} else {
+				log.Printf("Failed to get 7d Sonnet window stats for account %d: %v", account.ID, err)
+			}
+		}
+	}
+}
+
+func (s *AccountUsageService) accountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*WindowStats, error) {
+	key := windowStatsCacheKey{accountID: accountID, startUnixNano: startTime.UnixNano()}
+	if cached, ok := s.cache.windowStatsCache.Load(key); ok {
+		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
+			return cache.stats, nil
+		}
+	}
+
+	stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+	if err != nil {
+		return nil, err
+	}
+
+	windowStats := windowStatsFromAccountStats(stats)
+	s.cache.windowStatsCache.Store(key, &windowStatsCache{
+		stats:     windowStats,
+		timestamp: time.Now(),
+	})
+	return windowStats, nil
+}
+
+func usageWindowStartFromReset(progress *UsageProgress, duration time.Duration) (time.Time, bool) {
+	if progress == nil || progress.ResetsAt == nil || duration <= 0 {
+		return time.Time{}, false
+	}
+	if !progress.ResetsAt.After(time.Now()) {
+		return time.Time{}, false
+	}
+	return progress.ResetsAt.Add(-duration), true
 }
 
 // GetTodayStats 获取账号今日统计
@@ -1399,11 +1443,68 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 
 	return &WindowStats{
 		Requests:     stats.Requests,
+		InputTokens:  stats.InputTokens,
+		OutputTokens: stats.OutputTokens,
 		Tokens:       stats.Tokens,
 		Cost:         stats.Cost,
 		StandardCost: stats.StandardCost,
 		UserCost:     stats.UserCost,
 	}, nil
+}
+
+const (
+	APIKeyFiveHourResetAtExtraKey = "apikey_5h_reset_at"
+	APIKeySevenDayResetAtExtraKey = "apikey_7d_reset_at"
+)
+
+func hasExplicitAPIKeyWindow(extra map[string]any) bool {
+	for _, key := range []string{APIKeyFiveHourResetAtExtraKey, APIKeySevenDayResetAtExtraKey} {
+		if value, ok := extra[key]; ok && value != nil && strings.TrimSpace(fmt.Sprint(value)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func explicitAPIKeyProgress(extra map[string]any, key string, duration time.Duration, now time.Time) (*UsageProgress, time.Time) {
+	raw, ok := extra[key]
+	if !ok || raw == nil {
+		return nil, time.Time{}
+	}
+	resetAt, err := time.Parse(time.RFC3339, strings.TrimSpace(fmt.Sprint(raw)))
+	if err != nil || !now.Before(resetAt) {
+		return nil, time.Time{}
+	}
+	remaining := int(resetAt.Sub(now).Seconds())
+	return &UsageProgress{ResetsAt: &resetAt, RemainingSeconds: remaining}, resetAt.Add(-duration)
+}
+
+func (s *AccountUsageService) applyExplicitAPIKeyWindows(ctx context.Context, account *Account, usage *UsageInfo, now time.Time) {
+	if account == nil || account.Type != AccountTypeAPIKey || usage == nil {
+		return
+	}
+	windows := []struct {
+		key      string
+		duration time.Duration
+		target   **UsageProgress
+	}{
+		{APIKeyFiveHourResetAtExtraKey, 5 * time.Hour, &usage.FiveHour},
+		{APIKeySevenDayResetAtExtraKey, 7 * 24 * time.Hour, &usage.SevenDay},
+	}
+	for _, window := range windows {
+		if raw, explicitlySet := account.Extra[window.key]; !explicitlySet || raw == nil {
+			continue
+		}
+		progress, start := explicitAPIKeyProgress(account.Extra, window.key, window.duration, now)
+		*window.target = progress
+		if progress == nil || s.usageLogRepo == nil {
+			continue
+		}
+		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, start)
+		if err == nil {
+			progress.WindowStats = windowStatsFromAccountStats(stats)
+		}
+	}
 }
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
@@ -1471,6 +1572,8 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 	}
 	return &WindowStats{
 		Requests:     stats.Requests,
+		InputTokens:  stats.InputTokens,
+		OutputTokens: stats.OutputTokens,
 		Tokens:       stats.Tokens,
 		Cost:         stats.Cost,
 		StandardCost: stats.StandardCost,
@@ -1542,11 +1645,23 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	return progress
 }
 
-func codexWindowStatsStart(progress *UsageProgress, fallbackWindow time.Duration, now time.Time) time.Time {
-	if progress != nil && progress.ResetsAt != nil && now.Before(*progress.ResetsAt) {
-		return progress.ResetsAt.Add(-fallbackWindow)
+func codexWindowStatsStart(extra map[string]any, progress *UsageProgress, window string, fallbackWindow time.Duration, now time.Time) time.Time {
+	if progress == nil || progress.ResetsAt == nil || !now.Before(*progress.ResetsAt) {
+		return now.Add(-fallbackWindow)
 	}
-	return now.Add(-fallbackWindow)
+
+	windowMinutes := 0
+	switch window {
+	case "5h":
+		windowMinutes = parseExtraInt(extra["codex_5h_window_minutes"])
+	case "7d":
+		windowMinutes = parseExtraInt(extra["codex_7d_window_minutes"])
+	}
+	if windowMinutes > 0 {
+		return progress.ResetsAt.Add(-time.Duration(windowMinutes) * time.Minute)
+	}
+
+	return progress.ResetsAt.Add(-fallbackWindow)
 }
 
 func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {

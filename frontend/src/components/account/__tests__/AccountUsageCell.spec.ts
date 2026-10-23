@@ -128,6 +128,41 @@ describe('AccountUsageCell', () => {
         dispatchEvent: vi.fn(),
       }))
     })
+
+  })
+
+  it.each(['openai', 'gemini'] as const)('shows explicit %s API-key usage windows without changing platform', async (platform) => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 0,
+        resets_at: '2027-01-01T00:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: { requests: 2, input_tokens: 10, output_tokens: 20, tokens: 30, cost: 1, user_cost: 2 }
+      },
+      seven_day: null
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 77,
+          platform,
+          type: 'apikey',
+          extra: { apikey_5h_reset_at: '2027-01-01T00:00:00Z' }
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'windowStats'],
+            template: '<div data-test="explicit-window">{{ label }}|{{ windowStats?.input_tokens }}|{{ windowStats?.output_tokens }}</div>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(77)
+    expect(wrapper.get('[data-test="explicit-window"]').text()).toBe('5h|10|20')
   })
 
   it('renders eligible Ollama Cloud state and forwards query updates', async () => {
@@ -544,6 +579,74 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledWith(2000)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
+  })
+
+  it('Anthropic OAuth 会把 5h/7d/7d Sonnet 各自 window_stats 传给窗口条', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 10,
+        resets_at: '2026-03-08T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: {
+          requests: 5,
+          tokens: 500,
+          cost: 0.5,
+          standard_cost: 0.55,
+          user_cost: 0.25
+        }
+      },
+      seven_day: {
+        utilization: 20,
+        resets_at: '2026-03-13T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: {
+          requests: 70,
+          tokens: 7000,
+          cost: 7,
+          standard_cost: 7.7,
+          user_cost: 3.5
+        }
+      },
+      seven_day_sonnet: {
+        utilization: 30,
+        resets_at: '2026-03-13T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: {
+          requests: 17,
+          tokens: 1700,
+          cost: 1.7,
+          standard_cost: 1.87,
+          user_cost: 0.85
+        }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2100,
+          platform: 'anthropic',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats', 'color'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.requests }}|{{ windowStats?.tokens }}|{{ windowStats?.standard_cost }}|{{ windowStats?.user_cost }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(2100, 'passive')
+    expect(wrapper.text()).toContain('5h|10|5|500|0.55|0.25')
+    expect(wrapper.text()).toContain('7d|20|70|7000|7.7|3.5')
+    expect(wrapper.text()).toContain('7d S|30|17|1700|1.87|0.85')
   })
 
   it('OpenAI OAuth 有 codex 快照时仍然使用 /usage API 数据渲染', async () => {
