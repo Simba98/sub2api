@@ -223,4 +223,32 @@ describe('UsageProgressBar', () => {
     expect(percent.classes()).toContain('w-[32px]')
     expect(percent.classes()).toContain('text-right')
   })
+
+  it('窗口统计展示请求、输入输出 Token、账号/标准/用户成本', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '7d',
+        utilization: 12,
+        resetsAt: '2026-03-17T02:30:00Z',
+        color: 'emerald',
+        windowStats: {
+          requests: 12,
+          input_tokens: 1234,
+          output_tokens: 2222,
+          tokens: 3456,
+          cost: 9.99,
+          standard_cost: 1.23,
+          user_cost: 4.56
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('12 req')
+    expect(wrapper.text()).toContain('3.5K')
+    expect(wrapper.text()).toContain('I 1.2K')
+    expect(wrapper.text()).toContain('O 2.2K')
+    expect(wrapper.text()).toContain('A $9.99')
+    expect(wrapper.text()).toContain('S $1.23')
+    expect(wrapper.text()).toContain('U $4.56')
+  })
 })
