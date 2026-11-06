@@ -54,7 +54,8 @@ npm install -g pnpm
 ### CI 要求
 
 - Go 版本必须是 **1.27.0**：三个 workflow 都用 `go-version-file: backend/go.mod` 取版本，随后硬断言 `go version | grep -q 'go1.27.0'`。升级 Go 时要同时改 `backend/go.mod`、`backend-ci.yml`（两处）、`release.yml`、`security-scan.yml` 里的这句断言，**以及三个 Dockerfile 里的 Go 构建镜像**（`Dockerfile` / `deploy/Dockerfile` 的 `ARG GOLANG_IMAGE`、`backend/Dockerfile` 的 `FROM golang:`）。前者漏了 CI 会在版本校验步骤直接失败；**后者漏了 CI 不会报，而是等到有人用这些 Dockerfile 构建时才失败**（`go.mod requires go >= X (running Y; GOTOOLCHAIN=local)`）。
-- 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`
+- 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`。
+- 前端构建使用 **Node.js 24**，与三个工作流和 Docker 构建镜像保持一致。修复安全漏洞后的 Vue I18n 11.4.18 及其编译器要求 Node.js >=22，不再支持 Node.js 20；升级时需同步 `vue-i18n` 与 `@intlify/message-compiler`，并验证翻译、套餐卡片及用量窗口测试。
 
 ### 本地测试命令
 
