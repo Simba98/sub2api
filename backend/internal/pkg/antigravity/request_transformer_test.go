@@ -156,7 +156,7 @@ func TestBuildParts_DocumentBase64PreservedAsInlineData(t *testing.T) {
 		{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBERi0xLjQ="},"title":"receipt.pdf"}
 	]`
 
-	parts, _, err := buildParts(json.RawMessage(content), map[string]string{}, true)
+	parts, _, err := buildParts(json.RawMessage(content), map[string]string{}, true, false)
 	require.NoError(t, err)
 	require.Len(t, parts, 2)
 	require.Equal(t, "这可以看得出是谁购买的吗?", parts[0].Text)
