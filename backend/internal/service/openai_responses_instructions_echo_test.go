@@ -121,28 +121,31 @@ func TestOpenAIResponsesInstructionsEchoRestoreHelpers(t *testing.T) {
 	require.Equal(t, event, restoreOpenAIResponsesInstructionsEchoInEvent(c, event), "a new attempt clears the previous restore value")
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_CodexBlankInstructionsForwardedAsIs(t *testing.T) {
+func TestOpenAIGatewayService_OAuthPassthrough_CodexInvalidInstructionsRollbackPreservesEcho(t *testing.T) {
 	for _, raw := range []string{`""`, `" "`, `{"text":"x"}`} {
 		t.Run(raw, func(t *testing.T) {
-			upstream := instructionsEchoUpstream(raw)
+			upstream := instructionsEchoUpstream(`"` + instructionsEchoMarker + `"`)
 			result, rec, err := instructionsEchoForward(t, instructionsEchoOAuthAccount(true), upstream,
 				`{"model":"gpt-5.3-codex","stream":true,"instructions":`+raw+`,"input":[{"type":"message","role":"user","content":"Hi"}]}`)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.JSONEq(t, raw, gjson.GetBytes(upstream.lastBody, "instructions").Raw)
+			require.NotEmpty(t, strings.TrimSpace(gjson.GetBytes(upstream.lastBody, "instructions").String()))
+			require.Equal(t, gjson.String, gjson.GetBytes(upstream.lastBody, "instructions").Type)
+			require.NotContains(t, rec.Body.String(), instructionsEchoMarker)
 			require.JSONEq(t, raw, sseResponseInstructions(t, rec.Body.String(), "response.completed").Raw)
 		})
 	}
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_MissingInstructionsForwardedWithoutField(t *testing.T) {
-	upstream := instructionsEchoUpstream("null")
+func TestOpenAIGatewayService_OAuthPassthrough_MissingInstructionsRollbackPreservesEcho(t *testing.T) {
+	upstream := instructionsEchoUpstream(`"` + instructionsEchoMarker + `"`)
 	result, rec, err := instructionsEchoForward(t, instructionsEchoOAuthAccount(true), upstream,
 		`{"model":"gpt-6.1-sol","stream":true,"input":[{"type":"message","role":"user","content":"Hi"}]}`)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.False(t, gjson.GetBytes(upstream.lastBody, "instructions").Exists())
+	require.NotEmpty(t, gjson.GetBytes(upstream.lastBody, "instructions").String())
+	require.NotContains(t, rec.Body.String(), instructionsEchoMarker)
 	require.Equal(t, gjson.Null, sseResponseInstructions(t, rec.Body.String(), "response.created").Type)
 	require.Equal(t, gjson.Null, sseResponseInstructions(t, rec.Body.String(), "response.completed").Type)
 }
