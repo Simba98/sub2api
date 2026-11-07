@@ -123,6 +123,24 @@ func restoreOpenAIResponsesClientToolPayload(c *gin.Context, payload []byte) ([]
 	return restored, err
 }
 
+func openAIPassthroughInstructionsRollbackReason(reqModel string, body []byte) string {
+	instructions := gjson.GetBytes(body, "instructions")
+	if !instructions.Exists() {
+		// Codex-named models retain their upstream default instructions template.
+		if isOpenAICodexModel(reqModel) {
+			return ""
+		}
+		return "instructions_missing"
+	}
+	if instructions.Type != gjson.String {
+		return "instructions_not_string"
+	}
+	if strings.TrimSpace(instructions.String()) == "" {
+		return "instructions_empty"
+	}
+	return ""
+}
+
 func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	ctx context.Context,
 	c *gin.Context,
@@ -154,9 +172,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if hasOpenAIResponsesSystemMessage(body) {
 			return nil, &openAIPassthroughRollbackError{Reason: "system_message"}
 		}
-		if rejectReason := detectOpenAIPassthroughInstructionsRejectReason(reqModel, body); rejectReason != "" {
-			logOpenAIPassthroughInstructionsRejected(ctx, c, account, reqModel, rejectReason, body)
-			return nil, &openAIPassthroughRollbackError{Reason: rejectReason}
+		if rollbackReason := openAIPassthroughInstructionsRollbackReason(reqModel, body); rollbackReason != "" {
+			return nil, &openAIPassthroughRollbackError{Reason: rollbackReason}
 		}
 		if isOpenAICodexModel(reqModel) && !gjson.GetBytes(body, "instructions").Exists() {
 			nextBody, setErr := sjson.SetBytes(body, "instructions", defaultCodexSynthInstructions(reqModel))

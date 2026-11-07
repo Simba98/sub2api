@@ -887,6 +887,27 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamRequestIgnoresClientCance
 	require.NoError(t, upstream.lastReq.Context().Err())
 }
 
+func TestOpenAIPassthroughInstructionsRollbackReason(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		model  string
+		body   string
+		reason string
+	}{
+		{"missing OAuth instructions", "gpt-5.5", `{}`, "instructions_missing"},
+		{"missing Astra instructions", "gpt-6-astra", `{}`, "instructions_missing"},
+		{"Codex default template", "gpt-5.1-codex-max", `{}`, ""},
+		{"null instructions", "gpt-6-astra", `{"instructions":null}`, "instructions_not_string"},
+		{"non-string instructions", "gpt-5.1-codex-max", `{"instructions":123}`, "instructions_not_string"},
+		{"blank instructions", "gpt-5.1-codex-max", `{"instructions":"  "}`, "instructions_empty"},
+		{"native instructions", "gpt-6-astra", `{"instructions":"Help the user."}`, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.reason, openAIPassthroughInstructionsRollbackReason(tt.model, []byte(tt.body)))
+		})
+	}
+}
+
 func TestOpenAIGatewayService_OAuthPassthrough_CodexMissingInstructionsGetsDefault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
