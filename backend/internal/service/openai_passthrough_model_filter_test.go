@@ -53,17 +53,19 @@ func TestOpenAIPassthroughModelFilterEligibility(t *testing.T) {
 				{"default ignores leftover mapping", nil, "gpt-6.1-sol", true},
 				{"disabled ignores leftover mapping", false, "gpt-6.1-sol", true},
 				{"invalid flag does not opt in", "true", "gpt-6.1-sol", true},
-				{"opt in rejects other provider", true, "gpt-6.1-sol", false},
-				{"opt in accepts exact source key", true, "qwen3.8-max", true},
-				{"opt in accepts wildcard source key", true, "qwen3.8-plus", true},
-				{"mapping targets do not grant access", true, "upstream-only", false},
+				{"opt in rejects unlisted GPT model", true, "gpt-6.1-sol", false},
+				{"opt in accepts exact source key", true, "gpt-6-astra", true},
+				{"opt in accepts wildcard source key", true, "gpt-6-astra-high", true},
+				{"API key accepts other provider source key", true, "qwen3.8-max", accountType == AccountTypeAPIKey},
+				{"mapping targets do not grant access", true, "gpt-upstream-only", false},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					account := &Account{
 						Platform: PlatformOpenAI, Type: accountType,
 						Extra: map[string]any{"openai_passthrough": true, "openai_passthrough_model_filter": tc.flag},
 						Credentials: map[string]any{"model_mapping": map[string]any{
-							"qwen3.8-max": "upstream-only", "qwen3.8-*": "wildcard-target",
+							"gpt-6-astra": "gpt-upstream-only", "gpt-6-astra-*": "wildcard-target",
+							"qwen3.8-max": "gpt-6-astra",
 						}},
 					}
 					require.Equal(t, tc.want, account.IsModelSupported(tc.model))
@@ -72,7 +74,8 @@ func TestOpenAIPassthroughModelFilterEligibility(t *testing.T) {
 			}
 			account := &Account{Platform: PlatformOpenAI, Type: accountType,
 				Extra: map[string]any{"openai_passthrough": true, "openai_passthrough_model_filter": true}}
-			require.True(t, account.IsModelSupported("qwen3.8-max"), "empty restrictions still allow all models")
+			require.True(t, account.IsModelSupported("gpt-6.1-sol"), "empty restrictions allow GPT models")
+			require.Equal(t, accountType == AccountTypeAPIKey, account.IsModelSupported("qwen3.8-max"), "only API-key passthrough can serve non-GPT models")
 		})
 	}
 }
@@ -126,6 +129,70 @@ func TestOpenAIPassthroughModelFilterMixedPoolSelection(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestOpenAIOAuthPassthroughMixedPoolSelection(t *testing.T) {
+	groupID := int64(17)
+	for _, mode := range []string{"legacy", "load-batch", "advanced"} {
+		for _, tc := range []struct {
+			name     string
+			model    string
+			sticky   bool
+			excluded map[int64]struct{}
+			wantID   int64
+		}{
+			{"foreign model skips preferred OAuth", "gemini-3.8-pro", false, nil, 1},
+			{"foreign model rejects stale OAuth binding", "gemini-3.8-pro", true, nil, 1},
+			{"failover cannot fall back to OAuth", "gemini-3.8-pro", true, map[int64]struct{}{1: {}}, 0},
+			{"GPT still reaches OAuth", "gpt-6.1-sol", false, map[int64]struct{}{1: {}}, 2},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				accounts := passthroughModelFilterAccounts(true, 0)
+				accounts[1].Extra = map[string]any{"openai_passthrough": true}
+				accounts[1].Credentials["model_mapping"] = map[string]any{"*": "gpt-6.1-sol"}
+				cfg := &config.Config{}
+				cfg.Gateway.Scheduling.LoadBatchEnabled = mode == "load-batch"
+				cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{}}
+				session := ""
+				if tc.sticky {
+					session = "stale-oauth-binding"
+					cache.sessionBindings[session] = 2
+				}
+				svc := &OpenAIGatewayService{
+					accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cfg: cfg, cache: cache,
+					concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+				}
+				var selected *Account
+				var err error
+				if mode == "legacy" {
+					selected, err = svc.SelectAccountForModelWithExclusions(context.Background(), &groupID, session, tc.model, tc.excluded)
+				} else {
+					var selection *AccountSelectionResult
+					if mode == "advanced" {
+						svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("true")
+						t.Cleanup(resetOpenAIAdvancedSchedulerSettingCacheForTest)
+						selection, _, err = svc.SelectAccountWithScheduler(context.Background(), &groupID, "", session, tc.model, tc.excluded, OpenAIUpstreamTransportAny, false)
+					} else {
+						selection, err = svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, session, tc.model, tc.excluded)
+					}
+					if selection != nil {
+						selected = selection.Account
+						if selection.ReleaseFunc != nil {
+							defer selection.ReleaseFunc()
+						}
+					}
+				}
+				if tc.wantID == 0 {
+					require.Error(t, err)
+					require.Nil(t, selected)
+					return
+				}
+				require.NoError(t, err)
+				require.NotNil(t, selected)
+				require.Equal(t, tc.wantID, selected.ID)
+			})
+		}
 	}
 }
 

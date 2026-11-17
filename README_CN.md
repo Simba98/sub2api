@@ -240,6 +240,12 @@ underscores_in_headers on;
 
 Nginx 默认会丢弃名称中含下划线的请求头（如 `session_id`），这会导致多账号环境下的粘性会话功能失效。
 
+## Fork：OpenAI OAuth 透传模型限制
+
+OpenAI OAuth 与 Setup-token 账号共用 ChatGPT/Codex 协议。启用自动透传后，调度只接受去除首尾空白后以 `gpt-` 开头的模型名（大小写敏感），并保留原有退役模型检查和可选模型过滤。旧版 `openai_oauth_passthrough` 开关同样适用。Gemini、Claude、自定义别名和 `provider/gpt-*` 不会通过账号映射或通配符绕过此限制；普通选号、粘性会话和故障切换均使用同一资格检查。
+
+OpenAI API-key 聚合账号仍可透传非 GPT 模型，开启可选模型过滤时继续按源模型名筛选。未启用透传的账号保持原有映射行为。本规则只决定账号候选资格，不改写客户端请求体。
+
 ## VSCode Harness 与 HTTP Responses 续链
 
 若 HTTP Responses 请求返回 `previous_response_id requires an OpenAI API-key account for HTTP requests`，表示该续链请求未能使用支持此能力的 OpenAI API-key 账号。OAuth HTTP 路径保留此限制；响应归属和账号粘连缓存不保存完整对话历史，启用账号 WebSocket 配置也不会自动将 HTTP 入站转换为 WebSocket 上游。
