@@ -80,12 +80,32 @@ func TestIsModelSupported_OpenAIOAuthExplicitMappingUnchanged(t *testing.T) {
 	require.False(t, account.IsModelSupported("glm-4.7"))
 }
 
-func TestIsModelSupported_OpenAIOAuthPassthroughAllowsAll(t *testing.T) {
-	account := newOpenAIOAuthAccountForModelTest()
-	account.Extra = map[string]any{"openai_passthrough": true}
-
-	// 透传模式仅替换认证，模型语义由上游决定，保持"允许所有"。
-	require.True(t, account.IsModelSupported("deepseek-v4"))
+func TestIsModelSupported_OpenAIOAuthPassthroughGPTOnly(t *testing.T) {
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		for _, flag := range []string{"openai_passthrough", "openai_oauth_passthrough"} {
+			t.Run(accountType+"/"+flag, func(t *testing.T) {
+				account := &Account{Platform: PlatformOpenAI, Type: accountType,
+					Extra: map[string]any{flag: true}}
+				for _, model := range []string{"gpt-6", "gpt-6-astra-high", "gpt-6.1-sol", " gpt-6 "} {
+					require.True(t, account.IsModelSupported(model), model)
+				}
+				for _, mapping := range []map[string]any{
+					nil,
+					{"gemini-3.8-pro": "gpt-6", "custom-model": "gpt-6"},
+					{"*": "gpt-6"},
+				} {
+					account.Credentials = map[string]any{"model_mapping": mapping}
+					for _, model := range []string{"gemini-3.8-pro", "claude-sonnet-4-6", "deepseek-v4", "custom-model", "o3", "codex-mini-latest", "provider/gpt-6", "GPT-6", ""} {
+						require.False(t, account.IsModelSupported(model), model)
+						require.False(t, supportsOpenAIRequestModel(account, model, true), "compact: %s", model)
+						require.False(t, (&GatewayService{}).isModelSupportedByAccount(account, model), "gateway: %s", model)
+					}
+				}
+				require.False(t, account.IsModelSupported("gpt-5.5"), "retirement still takes priority")
+				require.False(t, (&GatewayService{}).isModelSupportedByAccount(account, "gpt-5.5"), "gateway must retain retirement checks")
+			})
+		}
+	}
 }
 
 func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testing.T) {
@@ -98,8 +118,8 @@ func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testin
 		"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
 	}
 
-	require.True(t, account.IsModelSupported("gpt-5.6-sol"), "透传应放行不在残留白名单中的新模型")
-	require.True(t, account.IsModelSupported("deepseek-v4"), "透传应放行任意模型")
+	require.True(t, account.IsModelSupported("gpt-6.1-sol"), "透传应放行不在残留白名单中的 GPT 模型")
+	require.False(t, account.IsModelSupported("deepseek-v4"), "OAuth 透传只允许 gpt-* 模型")
 }
 
 func TestIsModelSupported_OpenAIAPIKeyEmptyMappingAllowsAll(t *testing.T) {
